@@ -4,21 +4,17 @@
 window.BOOKME_IMAGES = (function () {
   const u = (id, w = 640) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=70`;
 
-  // Every ID below was individually verified by fetching the actual Unsplash
-  // photo page and confirming a free-to-use license — not guessed. The
-  // original IDs in this file (before this fix) were unverified and mostly
-  // did not correspond to real photos, which is why dishes were showing blank.
   const byCuisine = {
-    Indian: "photo-1694579740719-0e601c5d2437",
-    Korean: "photo-1600289031464-74d374b64991",
-    Italian: "photo-1713449585141-0af71bcbfcc2",
-    Mexican: "photo-1663626913917-8a638838905e",
-    Mediterranean: "photo-1650939976004-9861867422e2",
-    Southern: "photo-1608039755401-742074f0548d",
-    Thai: "photo-1637806931098-af30b519be53",
-    Vietnamese: "photo-1580694129446-25862b43c178",
-    Vegan: "photo-1623428188474-b1d532c5e560",
-    American: "photo-1535569807835-01fd773379ad",
+    Indian: "photo-1585937421612-70a008356fbe",
+    Korean: "photo-1498654896293-37aacf113fd9",
+    Italian: "photo-1565299624946-b28f40a0ae38",
+    Mexican: "photo-1551504734-5ee1c4a1479b",
+    Mediterranean: "photo-1540189549336-e6e99c3679fe",
+    Southern: "photo-1544025162-d76694265947",
+    Thai: "photo-1559314809-0d155014e29e",
+    Vietnamese: "photo-1569718212165-3a8278d5f624",
+    Vegan: "photo-1512621776951-a57141f2eefd",
+    American: "photo-1504674900247-0877df9cc836",
   };
   const rooms = [
     "photo-1517248135467-4c7edcad34c4",
@@ -60,15 +56,7 @@ window.BOOKME_IMAGES = (function () {
 
   return {
     thumb(r) { return u(byCuisine[r.cuisine_type] || rooms[r.restaurant_id % rooms.length], 320); },
-    room(r) { return u(byCuisine[r.cuisine_type] || rooms[r.restaurant_id % rooms.length], 900); },
-    dish(item, cuisineType) {
-      // Cuisine photo first: it's verified working. byDish below has per-dish
-      // photos but those IDs were never individually confirmed the way the
-      // cuisine ones now are — kept for reference/future verification, but
-      // not used as the primary source until each one is checked the same way.
-      if (cuisineType && byCuisine[cuisineType]) return u(byCuisine[cuisineType], 800);
-      if (byDish[item.name]) return u(byDish[item.name], 800);
-      return null;
-    },
+    room(r) { return u(rooms[r.restaurant_id % rooms.length], 900); },
+    dish(item) { return byDish[item.name] ? u(byDish[item.name], 800) : null; },
   };
 })();
