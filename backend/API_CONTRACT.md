@@ -16,7 +16,7 @@ List all restaurants. Use this to populate a restaurant picker/discovery screen.
 **Response**
 ```json
 { "restaurants": [
-  { "restaurant_id": 1, "name": "Indian Corner", "neighborhood": "Wicker Park", "cuisine_type": "Indian", "price_tier": "$$", "avg_rating": 3.5 }
+  { "restaurant_id": 1, "name": "Indian Corner", "description": "A cozy indian spot with a focus on fresh, seasonal ingredients.", "neighborhood": "Wicker Park", "cuisine_type": "Indian", "price_tier": "$$", "avg_rating": 3.5 }
 ]}
 ```
 
@@ -33,9 +33,12 @@ it's present. This is the "set once, applied everywhere" feature.
   { "item_id": 1, "name": "Bruschetta", "description": "...", "price": 12.5,
     "discount_price": null, "category": "Appetizers",
     "is_vegetarian": false, "is_vegan": false, "is_gluten_free": false,
-    "popularity_score": 3.0, "allergens": ["soy"] }
+    "popularity_score": 3.0, "allergens": ["soy"],
+    "modifiers": [ { "modifier_id": 3, "name": "Extra cheese", "price_delta": 1.5 } ] }
 ]}
 ```
+`modifiers` lists every customization option for that dish (e.g. "extra cheese", "no onions"). Pass chosen `modifier_id`s back in `POST /orders` — see below.
+
 **Errors:** `404` if `restaurant_id` doesn't exist.
 
 ---
@@ -46,7 +49,7 @@ Live seat inventory — render as the "concert-ticketing style" availability gri
 **Response**
 ```json
 { "restaurant_id": 1, "tables": [
-  { "table_id": 1, "table_number": "T001", "capacity": 2, "location_zone": "main dining", "status": "available" }
+  { "table_id": 1, "table_number": "T001", "capacity": 2, "location_zone": "main dining", "seating_feature": "Window view", "status": "available" }
 ]}
 ```
 `status` is one of `available`, `seated`, `reserved`, `out_of_service`.
@@ -60,9 +63,12 @@ show the ETA immediately after checkout, don't make a second round trip.
 
 **Request**
 ```json
-{ "user_id": 1, "restaurant_id": 1, "items": [
-  { "item_id": 1, "quantity": 2 }
+{ "user_id": 1, "restaurant_id": 1, "payment_method": "apple_pay", "items": [
+  { "item_id": 1, "quantity": 2, "modifier_ids": [3] }
 ]}
+```
+`payment_method` is optional (defaults to `"card"`) — one of `card`, `apple_pay`, `google_pay`.
+`modifier_ids` is optional (defaults to `[]`) — must belong to that specific `item_id` (a `400` is returned otherwise). Each selected modifier's `price_delta` is added to the order total.
 ```
 
 **Response**
@@ -78,9 +84,15 @@ show the ETA immediately after checkout, don't make a second round trip.
     },
     "model": "heuristic-baseline-v0.1 (cold-start fallback per requirements doc 2.1)"
   },
+  "payment": {
+    "method": "apple_pay",
+    "status": "not charged — demo only",
+    "note": "In production this step redirects to a real payment page (Stripe) for the selected method."
+  },
   "pos_push_status": "stubbed — real Toast API push not implemented in this demo"
 }
 ```
+A real `payments` row IS written (method, order, amount) — it's just never actually charged. This is the same honest-stub pattern as POS push.
 
 **Errors:**
 - `400` — empty `items` array ("Cart is empty")
@@ -102,7 +114,8 @@ coming" screen). Same `eta` object shape as inside `POST /orders`.
 
 ## `GET /restaurants/{restaurant_id}/staffing-forecast?shift_date=YYYY-MM-DD`
 Restaurant-facing only — this is the operator dashboard's data source, not
-something a diner sees. `shift_date` is optional (defaults to the most
+something a diner sees. `front_of_house_staff`/`kitchen_staff` are computed
+from who was actually scheduled (the shifts table), not a guessed split. `shift_date` is optional (defaults to the most
 recent 8 shifts).
 
 **Response**
@@ -111,7 +124,8 @@ recent 8 shifts).
   { "forecast_id": 1, "shift_date": "2026-09-22", "shift_block": "dinner",
     "predicted_covers": 49, "actual_covers": 40,
     "recommended_staff_count": 7, "actual_staff_count": 6,
-    "confidence_score": 0.85 }
+    "front_of_house_staff": 4, "kitchen_staff": 2,
+    "weather_condition": "clear", "confidence_score": 0.85 }
 ]}
 ```
 **Errors:** `404` if `restaurant_id` doesn't exist.

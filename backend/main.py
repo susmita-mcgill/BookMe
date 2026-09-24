@@ -6,12 +6,9 @@ of the synthetic database that demonstrates the one thing the team's
 requirements doc says must be shown live: the Food Prep ETA model
 (Section 2.1), plus the read paths a real diner app would call.
 
-Scope note: the frontend/ folder is a real, working demo page for this
-section (Data Engineer / Solution Architect) — the UX teammate's work is a
-separate analytics-layer visualization, not the same transactional diner
-flow this page shows. Confirm there's no overlap between this page's
-"Restaurant view" tab and her staffing-forecast visualization before
-presenting both.
+Scope note: the frontend-app/ folder (Risny's full diner + operator
+prototype) is the team's one frontend going forward. This backend's earlier
+minimal frontend/ page has been retired — see /bookme/ below.
 
 What's real here:
   - A live FastAPI server with working endpoints
@@ -41,8 +38,8 @@ Run:
   pip install fastapi uvicorn --break-system-packages
   cd backend
   uvicorn main:app --reload
-  Then open http://127.0.0.1:8000/app/ for the connected demo page (this is
-  now the pitch demo surface). http://127.0.0.1:8000/docs remains available
+  Then open http://127.0.0.1:8000/bookme/ — that's the only frontend now.
+  http://127.0.0.1:8000/docs remains available
   as a backup/Q&A tool. See API_CONTRACT.md for the full interface spec,
   originally written for a mobile teammate but still an accurate reference
   for this page's own frontend code.
@@ -58,7 +55,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "synthetic_data", "dining_app.db")
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
+FRONTEND_APP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend-app")
 
 app = FastAPI(
     title="BookMe — MVP backend (demo scope)",
@@ -164,12 +161,14 @@ def predict_prep_eta(restaurant_id: int, item_ids: list[int], conn) -> dict:
 class OrderItemIn(BaseModel):
     item_id: int
     quantity: int = 1
+    modifier_ids: list[int] = []  # e.g. "extra cheese", "no onions" — see item_modifiers
 
 
 class OrderIn(BaseModel):
     user_id: int
     restaurant_id: int
     items: list[OrderItemIn]
+    payment_method: Optional[str] = "card"  # 'card', 'apple_pay', 'google_pay' — demo only, see place_order
 
 
 # ================================================================
@@ -184,10 +183,10 @@ def root():
 @app.get("/restaurants")
 def list_restaurants():
     """List all restaurants, with enough detail to power a real discovery UI
-    (area/cuisine filtering, price tier and rating badges) — not just an id/name pair."""
+    (area/cuisine filtering, price tier and rating badges, a one-line blurb)."""
     conn = get_db()
     rows = conn.execute(
-        """SELECT restaurant_id, name, neighborhood, cuisine_type, price_tier, avg_rating
+        """SELECT restaurant_id, name, description, neighborhood, cuisine_type, price_tier, avg_rating
            FROM restaurants ORDER BY restaurant_id"""
     ).fetchall()
     conn.close()
@@ -262,7 +261,11 @@ def get_menu(restaurant_id: int, user_id: Optional[int] = None):
             allergens = [a["name"] for a in allergen_rows]
             if exclude_allergens.intersection(allergens):
                 continue
-            result.append({**dict(item), "allergens": allergens})
+            modifier_rows = cur.execute(
+                "SELECT modifier_id, name, price_delta FROM item_modifiers WHERE item_id = ?",
+                (item["item_id"],),
+            ).fetchall()
+            result.append({**dict(item), "allergens": allergens, "modifiers": [dict(m) for m in modifier_rows]})
 
         return {"restaurant_id": restaurant_id, "filtered_for_user": user_id, "menu": result}
     finally:
@@ -271,13 +274,15 @@ def get_menu(restaurant_id: int, user_id: Optional[int] = None):
 
 @app.get("/restaurants/{restaurant_id}/tables")
 def get_live_seat_availability(restaurant_id: int):
-    """Live seat inventory — the case's 'concert-ticketing style' seat availability."""
+    """Live seat inventory — the case's 'concert-ticketing style' seat availability,
+    with a real seating detail (window view, patio, bar-side, etc.) per table."""
     conn = get_db()
     try:
         if not restaurant_exists(conn, restaurant_id):
             raise HTTPException(status_code=404, detail=f"No restaurant with id {restaurant_id}")
         rows = conn.execute(
-            "SELECT table_id, table_number, capacity, location_zone, status FROM restaurant_tables WHERE restaurant_id = ?",
+            """SELECT table_id, table_number, capacity, location_zone, seating_feature, status
+               FROM restaurant_tables WHERE restaurant_id = ?""",
             (restaurant_id,),
         ).fetchall()
         return {"restaurant_id": restaurant_id, "tables": [dict(r) for r in rows]}
@@ -319,7 +324,27 @@ def place_order(order: OrderIn):
                 detail=f"item_id(s) {wrong_restaurant} don't belong to restaurant {order.restaurant_id}",
             )
 
-        subtotal = sum(price_map[i.item_id] * i.quantity for i in order.items)
+        # Validate every chosen modifier actually belongs to the item it's attached to
+        # (e.g. can't add "extra cheese" from a different dish's modifier list).
+        mod_rows = cur.execute(
+            f"SELECT modifier_id, item_id, name, price_delta FROM item_modifiers WHERE item_id IN ({placeholders})",
+            item_ids,
+        ).fetchall()
+        valid_mods_by_item = {}
+        for m in mod_rows:
+            valid_mods_by_item.setdefault(m["item_id"], {})[m["modifier_id"]] = dict(m)
+
+        for i in order.items:
+            allowed = valid_mods_by_item.get(i.item_id, {})
+            bad = [mid for mid in i.modifier_ids if mid not in allowed]
+            if bad:
+                raise HTTPException(status_code=400, detail=f"modifier_id(s) {bad} are not valid for item {i.item_id}")
+
+        modifier_total = sum(
+            valid_mods_by_item[i.item_id][mid]["price_delta"] * i.quantity
+            for i in order.items for mid in i.modifier_ids
+        )
+        subtotal = sum(price_map[i.item_id] * i.quantity for i in order.items) + modifier_total
         tax = round(subtotal * 0.1025, 2)
         total = round(subtotal + tax, 2)
         now = datetime.utcnow().isoformat()
@@ -336,6 +361,24 @@ def place_order(order: OrderIn):
                 "INSERT INTO order_items (order_id, item_id, quantity, unit_price, status) VALUES (?, ?, ?, ?, 'pending')",
                 (order_id, i.item_id, i.quantity, price_map[i.item_id]),
             )
+            order_item_id = cur.lastrowid
+            for mid in i.modifier_ids:
+                cur.execute(
+                    "INSERT INTO order_item_modifiers (order_item_id, modifier_id) VALUES (?, ?)",
+                    (order_item_id, mid),
+                )
+
+        # Record the payment method choice for real — but never actually charge anything.
+        # This is the honest middle ground: the order and the UI flow are real, the
+        # money movement is explicitly not (see /pos/push-order for the same pattern
+        # applied to POS integration).
+        method = order.payment_method if order.payment_method in ("card", "apple_pay", "google_pay") else "card"
+        cur.execute(
+            """INSERT INTO payments (order_id, payment_method, payment_token, amount, tip_amount,
+                                      split_type, split_count, status, paid_at)
+               VALUES (?, ?, 'stub_not_charged', ?, 0, 'single', 1, 'pending', ?)""",
+            (order_id, method, total, now),
+        )
         conn.commit()
 
         eta = predict_prep_eta(order.restaurant_id, item_ids, conn)
@@ -344,6 +387,11 @@ def place_order(order: OrderIn):
             "order_id": order_id,
             "subtotal": round(subtotal, 2), "tax": tax, "total": total,
             "eta": eta,
+            "payment": {
+                "method": method,
+                "status": "not charged — demo only",
+                "note": "In production this step redirects to a real payment page (Stripe) for the selected method.",
+            },
             "pos_push_status": "stubbed — real Toast API push not implemented in this demo, see /pos/push-order",
         }
     finally:
@@ -365,10 +413,18 @@ def get_order_eta(order_id: int):
         conn.close()
 
 
+FOH_ROLES = ("server", "host", "manager")
+KITCHEN_ROLES = ("cook", "dishwasher")
+
+
 @app.get("/restaurants/{restaurant_id}/staffing-forecast")
 def get_staffing_forecast(restaurant_id: int, shift_date: Optional[str] = None):
     """Restaurant-facing output of the same model family — the SaaS-tier value
-    prop. shift_date defaults to today (2026-09-22 in the synthetic data)."""
+    prop. shift_date defaults to today (2026-09-22 in the synthetic data).
+
+    Each row is enriched with a real front-of-house vs. kitchen staff split,
+    computed from who was actually scheduled (the shifts table joined to
+    restaurant_staff.role) — not a guessed ratio applied to a single number."""
     conn = get_db()
     try:
         if not restaurant_exists(conn, restaurant_id):
@@ -380,7 +436,27 @@ def get_staffing_forecast(restaurant_id: int, shift_date: Optional[str] = None):
             params.append(shift_date)
         q += " ORDER BY shift_date DESC LIMIT 8"
         rows = conn.execute(q, params).fetchall()
-        return {"restaurant_id": restaurant_id, "forecast": [dict(r) for r in rows]}
+
+        result = []
+        for row in rows:
+            d = dict(row)
+            foh_ph = ",".join("?" * len(FOH_ROLES))
+            kitchen_ph = ",".join("?" * len(KITCHEN_ROLES))
+            foh_count = conn.execute(
+                f"""SELECT COUNT(*) as c FROM shifts s JOIN restaurant_staff rs ON rs.staff_id = s.staff_id
+                    WHERE s.restaurant_id = ? AND s.shift_date = ? AND s.shift_block = ? AND rs.role IN ({foh_ph})""",
+                (restaurant_id, d["shift_date"], d["shift_block"], *FOH_ROLES),
+            ).fetchone()["c"]
+            kitchen_count = conn.execute(
+                f"""SELECT COUNT(*) as c FROM shifts s JOIN restaurant_staff rs ON rs.staff_id = s.staff_id
+                    WHERE s.restaurant_id = ? AND s.shift_date = ? AND s.shift_block = ? AND rs.role IN ({kitchen_ph})""",
+                (restaurant_id, d["shift_date"], d["shift_block"], *KITCHEN_ROLES),
+            ).fetchone()["c"]
+            d["front_of_house_staff"] = foh_count
+            d["kitchen_staff"] = kitchen_count
+            result.append(d)
+
+        return {"restaurant_id": restaurant_id, "forecast": result}
     finally:
         conn.close()
 
@@ -451,5 +527,5 @@ def push_order_to_pos_stub(order_id: int):
 # ================================================================
 # Mounted last so it never shadows the API routes above. Open
 # http://127.0.0.1:8000/app/ once the server is running.
-if os.path.isdir(FRONTEND_DIR):
-    app.mount("/app", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+if os.path.isdir(FRONTEND_APP_DIR):
+    app.mount("/bookme", StaticFiles(directory=FRONTEND_APP_DIR, html=True), name="bookme")
