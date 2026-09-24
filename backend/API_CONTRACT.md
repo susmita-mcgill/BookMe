@@ -1,4 +1,4 @@
-# API Contract — In-Restaurant Dining App backend
+# API Contract — BookMe backend
 
 For the mobile/frontend teammate. This is the interface the diner app would
 call. Base URL in this demo: `http://127.0.0.1:8000` (or wherever the API is
@@ -16,7 +16,7 @@ List all restaurants. Use this to populate a restaurant picker/discovery screen.
 **Response**
 ```json
 { "restaurants": [
-  { "restaurant_id": 1, "name": "Indian Corner", "neighborhood": "Wicker Park", "cuisine_type": "Indian" }
+  { "restaurant_id": 1, "name": "Indian Corner", "neighborhood": "Wicker Park", "cuisine_type": "Indian", "price_tier": "$$", "avg_rating": 3.5 }
 ]}
 ```
 

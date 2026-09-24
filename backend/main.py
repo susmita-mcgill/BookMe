@@ -183,10 +183,12 @@ def root():
 
 @app.get("/restaurants")
 def list_restaurants():
-    """List all restaurants — used to populate the demo frontend's selector."""
+    """List all restaurants, with enough detail to power a real discovery UI
+    (area/cuisine filtering, price tier and rating badges) — not just an id/name pair."""
     conn = get_db()
     rows = conn.execute(
-        "SELECT restaurant_id, name, neighborhood, cuisine_type FROM restaurants ORDER BY restaurant_id"
+        """SELECT restaurant_id, name, neighborhood, cuisine_type, price_tier, avg_rating
+           FROM restaurants ORDER BY restaurant_id"""
     ).fetchall()
     conn.close()
     return {"restaurants": [dict(r) for r in rows]}
