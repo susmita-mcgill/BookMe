@@ -1,0 +1,186 @@
+:root {
+  --navy: #1E2761;
+  --navy-dark: #141A45;
+  --navy-tint: #E9EBF7;
+  --coral: #C1502E;
+  --coral-dark: #8F3A21;
+  --coral-tint: #FBEAE3;
+  --teal: #0F6E56;
+  --teal-tint: #E1F0EA;
+  --bg: #FAFAF9;
+  --card: #FFFFFF;
+  --border: #E5E3DC;
+  --text: #26241F;
+  --muted: #74716A;
+  --serif: Cambria, Georgia, "Times New Roman", serif;
+  --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* ---------------- Top bar ---------------- */
+.topbar {
+  background: var(--navy);
+  color: #fff;
+  padding: 0.9rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.brand { font-family: var(--serif); font-size: 1.5rem; font-weight: 700; letter-spacing: 0.01em; }
+.controls { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+.controls label { display: flex; flex-direction: column; font-size: 0.7rem; color: #C9CEEA; gap: 0.25rem; }
+.controls select {
+  font-family: var(--sans); font-size: 0.88rem; padding: 0.35rem 0.5rem;
+  border-radius: 6px; border: 1px solid #3A4390; background: #262F73; color: #fff;
+}
+.tabs { display: flex; gap: 0.4rem; }
+.tab {
+  font-family: var(--sans); font-size: 0.85rem; padding: 0.5rem 0.9rem; border-radius: 999px;
+  border: 1px solid #3A4390; background: transparent; color: #C9CEEA; cursor: pointer;
+}
+.tab.active { background: var(--coral); border-color: var(--coral); color: #fff; }
+
+/* ---------------- Filter bar ---------------- */
+.filterbar {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.filterLabel {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.82rem; color: var(--muted); font-weight: 600;
+}
+.filterLabel select {
+  font-family: var(--sans); font-size: 0.88rem; padding: 0.35rem 0.55rem;
+  border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.cuisineChips { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.chip {
+  font-family: var(--sans); font-size: 0.82rem; padding: 0.4rem 0.85rem; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer;
+}
+.chip.active { background: var(--navy); border-color: var(--navy); color: #fff; }
+
+main { max-width: 1320px; margin: 0 auto; padding: 1.5rem; }
+.hidden { display: none !important; }
+
+#orderView {
+  display: grid;
+  grid-template-columns: 0.95fr 1.55fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+h2 { font-family: var(--serif); font-size: 1.2rem; margin: 0 0 0.7rem; color: var(--navy); }
+.hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem; }
+
+/* ---------------- Restaurant list ---------------- */
+.restaurantColumn { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; max-height: 640px; overflow-y: auto; }
+.restaurantList { display: flex; flex-direction: column; gap: 0.6rem; }
+.restCard {
+  border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.85rem; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.restCard:hover { border-color: var(--navy); }
+.restCard.selected { border-color: var(--coral); background: var(--coral-tint); }
+.restCard .restTop { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.restCard .restName { font-weight: 700; font-size: 0.95rem; }
+.restCard .restPrice { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.restCard .restMeta { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
+.restCard .restRating { font-size: 0.78rem; color: var(--teal); font-weight: 600; }
+.noResults { color: var(--muted); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
+
+/* ---------------- Menu column ---------------- */
+.menuColumn { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.25rem; min-height: 300px; }
+.restaurantHeader { border-bottom: 1px solid var(--border); padding-bottom: 0.8rem; margin-bottom: 1rem; }
+.restaurantHeader .rhName { font-family: var(--serif); font-size: 1.4rem; color: var(--navy); font-weight: 700; }
+.restaurantHeader .rhMeta { display: flex; gap: 0.5rem; margin-top: 0.35rem; flex-wrap: wrap; }
+.badge { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 999px; background: var(--navy-tint); color: var(--navy); font-weight: 600; }
+.badge.rating { background: var(--teal-tint); color: var(--teal); }
+
+.categoryBlock { margin-bottom: 1.3rem; }
+.categoryBlock:last-child { margin-bottom: 0; }
+.categoryTitle {
+  font-family: var(--serif); font-size: 1rem; font-weight: 700; color: var(--navy);
+  border-bottom: 2px solid var(--navy-tint); padding-bottom: 0.35rem; margin: 0 0 0.7rem;
+}
+.menuItem {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 0.75rem 0.9rem; display: flex; justify-content: space-between; align-items: center;
+  gap: 0.75rem; margin-bottom: 0.55rem;
+}
+.menuItem:last-child { margin-bottom: 0; }
+.menuItem .miName { font-weight: 700; font-size: 0.93rem; }
+.menuItem .miDesc { font-size: 0.76rem; color: var(--muted); margin-top: 0.1rem; }
+.dietBadges { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
+.dietPill { font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 999px; background: var(--teal-tint); color: var(--teal); font-weight: 600; }
+.miRight { display: flex; align-items: center; gap: 0.8rem; }
+.miPrice { font-weight: 700; white-space: nowrap; min-width: 3.2rem; text-align: right; }
+
+.stepper { display: flex; align-items: center; gap: 0.5rem; }
+.stepper button {
+  width: 1.6rem; height: 1.6rem; border-radius: 50%; border: 1px solid var(--navy);
+  background: #fff; color: var(--navy); font-size: 1rem; line-height: 1; cursor: pointer;
+}
+.stepper button:hover { background: var(--navy-tint); }
+.stepper .qty { min-width: 1.2rem; text-align: center; font-weight: 700; font-size: 0.9rem; }
+.addBtn {
+  background: var(--navy); color: #fff; border: none; border-radius: 999px;
+  padding: 0.4rem 0.9rem; font-size: 0.8rem; cursor: pointer; white-space: nowrap;
+}
+.addBtn:hover { background: var(--navy-dark); }
+
+/* ---------------- Side column ---------------- */
+.sideColumn { display: flex; flex-direction: column; gap: 1.25rem; }
+.cartCard, .seatCard { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.15rem; }
+.cartList { min-height: 2rem; margin-bottom: 0.75rem; }
+.cartList .empty { color: var(--muted); font-size: 0.85rem; }
+.cartRow { display: flex; justify-content: space-between; font-size: 0.87rem; padding: 0.32rem 0; border-bottom: 1px solid var(--border); }
+.cartRow:last-child { border-bottom: none; }
+.cartTotal { display: flex; justify-content: space-between; font-weight: 700; padding-top: 0.5rem; margin-bottom: 0.9rem; border-top: 1px solid var(--border); }
+
+button.primary {
+  width: 100%; background: var(--coral); color: #fff; border: none; border-radius: 8px;
+  padding: 0.65rem; font-size: 0.95rem; cursor: pointer;
+}
+button.primary:disabled { background: #DCD8CC; color: var(--muted); cursor: not-allowed; }
+button.primary:not(:disabled):hover { background: var(--coral-dark); }
+
+.etaResult { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px dashed var(--border); }
+.etaResult.hidden { display: none; }
+.etaResult h3 { font-family: var(--serif); font-size: 1rem; margin: 0 0 0.3rem; color: var(--navy); }
+.etaBig { font-size: 2rem; font-weight: 700; color: var(--teal); }
+.etaBreakdown { list-style: none; margin: 0.6rem 0 0; padding: 0; font-size: 0.78rem; color: var(--muted); }
+.etaBreakdown li { padding: 0.15rem 0; }
+
+.seatGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+.seat { border-radius: 8px; padding: 0.55rem 0.4rem; text-align: center; font-size: 0.75rem; border: 1px solid var(--border); }
+.seat.available { background: var(--teal-tint); color: var(--teal); border-color: #BFE3D2; }
+.seat.seated, .seat.reserved { background: #F3F0EA; color: var(--muted); }
+.seat b { display: block; font-size: 0.9rem; }
+
+.forecastTable { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.forecastTable th, .forecastTable td { padding: 0.55rem 0.8rem; text-align: left; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+.forecastTable th { background: var(--navy); color: #fff; font-weight: 600; }
+.forecastTable tr:last-child td { border-bottom: none; }
+
+footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 1.5rem; }
+
+@media (max-width: 1000px) {
+  #orderView { grid-template-columns: 1fr; }
+  .restaurantColumn { max-height: 320px; }
+}
