@@ -1,4 +1,15 @@
+const CATEGORY_ORDER = ["Appetizers", "Entrees", "Desserts", "Drinks"];
+const CATEGORY_LABEL = { "Appetizers": "Appetizers", "Entrees": "Main Course", "Desserts": "Desserts", "Drinks": "Drinks" };
+const CUISINE_ICON = {
+  Italian: "🍝", Mexican: "🌮", Thai: "🍜", American: "🍔", Indian: "🍛",
+  Vietnamese: "🍲", Mediterranean: "🥙", Korean: "🍱", Southern: "🍗", Vegan: "🥬",
+};
+
 const state = {
+  allRestaurants: [],
+  filteredRestaurants: [],
+  activeArea: "all",
+  activeCuisine: "all",
   restaurantId: null,
   userId: null,
   cart: [], // { item_id, name, price, quantity }
@@ -16,15 +27,17 @@ async function api(path, opts) {
 }
 
 // ---------------------------------------------------------------
-// Init: populate selectors
+// Init
 // ---------------------------------------------------------------
 async function init() {
   const { restaurants } = await api("/restaurants");
-  const rSelect = el("restaurantSelect");
-  rSelect.innerHTML = restaurants
-    .map((r) => `<option value="${r.restaurant_id}">${r.name} — ${r.neighborhood}</option>`)
-    .join("");
+  state.allRestaurants = restaurants;
+  state.filteredRestaurants = restaurants;
   state.restaurantId = restaurants[0].restaurant_id;
+
+  buildAreaFilter(restaurants);
+  buildCuisineChips(restaurants);
+  renderRestaurantList();
 
   const { users } = await api("/users?limit=15");
   const uSelect = el("userSelect");
@@ -35,9 +48,7 @@ async function init() {
     })
     .join("");
   state.userId = users[0].user_id;
-
-  rSelect.addEventListener("change", (e) => { state.restaurantId = Number(e.target.value); refresh(); });
-  uSelect.addEventListener("change", (e) => { state.userId = Number(e.target.value); refresh(); });
+  uSelect.addEventListener("change", (e) => { state.userId = Number(e.target.value); loadMenu(); });
 
   document.querySelectorAll(".tab").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -46,62 +57,187 @@ async function init() {
       const view = btn.dataset.view;
       el("orderView").classList.toggle("hidden", view !== "order");
       el("restaurantView").classList.toggle("hidden", view !== "restaurant");
+      el("filterbar").classList.toggle("hidden", view !== "order");
       if (view === "restaurant") loadForecast();
     });
   });
 
   el("placeOrderBtn").addEventListener("click", placeOrder);
 
-  await refresh();
-}
-
-async function refresh() {
-  state.cart = [];
-  renderCart();
-  el("etaResult").classList.add("hidden");
-  await Promise.all([loadMenu(), loadSeats()]);
+  await selectRestaurant(state.restaurantId);
 }
 
 // ---------------------------------------------------------------
-// Menu + dietary filter
+// Filters
 // ---------------------------------------------------------------
-async function loadMenu() {
-  const { menu } = await api(`/restaurants/${state.restaurantId}/menu?user_id=${state.userId}`);
-  const list = el("menuList");
-  if (!menu.length) {
-    list.innerHTML = `<p class="hint">No items match this diner's dietary restrictions at this restaurant.</p>`;
+function buildAreaFilter(restaurants) {
+  const areas = [...new Set(restaurants.map((r) => r.neighborhood))].sort();
+  const sel = el("areaSelect");
+  sel.innerHTML = `<option value="all">All areas</option>` + areas.map((a) => `<option value="${a}">${a}</option>`).join("");
+  sel.addEventListener("change", (e) => { state.activeArea = e.target.value; applyFilters(); });
+}
+
+function buildCuisineChips(restaurants) {
+  const cuisines = [...new Set(restaurants.map((r) => r.cuisine_type))].sort();
+  const box = el("cuisineChips");
+  const chips = ["all", ...cuisines];
+  box.innerHTML = chips
+    .map((c) => `<button class="chip ${c === "all" ? "active" : ""}" data-cuisine="${c}">${c === "all" ? "All cuisines" : (CUISINE_ICON[c] || "") + " " + c}</button>`)
+    .join("");
+  box.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      box.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      state.activeCuisine = chip.dataset.cuisine;
+      applyFilters();
+    });
+  });
+}
+
+function applyFilters() {
+  state.filteredRestaurants = state.allRestaurants.filter((r) => {
+    const areaOk = state.activeArea === "all" || r.neighborhood === state.activeArea;
+    const cuisineOk = state.activeCuisine === "all" || r.cuisine_type === state.activeCuisine;
+    return areaOk && cuisineOk;
+  });
+  renderRestaurantList();
+}
+
+// ---------------------------------------------------------------
+// Restaurant list + selection
+// ---------------------------------------------------------------
+function renderRestaurantList() {
+  const box = el("restaurantList");
+  if (!state.filteredRestaurants.length) {
+    box.innerHTML = `<p class="noResults">No restaurants match these filters.</p>`;
     return;
   }
-  list.innerHTML = menu
-    .map((item) => {
-      const price = item.discount_price || item.price;
-      const tags = [
-        item.is_vegetarian ? "vegetarian" : null,
-        item.is_vegan ? "vegan" : null,
-        item.is_gluten_free ? "gluten-free" : null,
-      ].filter(Boolean).join(" · ");
+  box.innerHTML = state.filteredRestaurants
+    .map((r) => {
+      const icon = CUISINE_ICON[r.cuisine_type] || "🍽️";
+      const selected = r.restaurant_id === state.restaurantId ? "selected" : "";
       return `
-        <div class="menuItem">
-          <div class="info">
-            <h4>${item.name}</h4>
-            <p>${item.category || ""}${tags ? " · " + tags : ""}</p>
+        <div class="restCard ${selected}" data-id="${r.restaurant_id}">
+          <div class="restTop">
+            <span class="restName">${icon} ${r.name}</span>
+            <span class="restPrice">${r.price_tier || ""}</span>
           </div>
-          <div class="price">$${price.toFixed(2)}</div>
-          <button data-item='${JSON.stringify({ item_id: item.item_id, name: item.name, price })}'>Add</button>
+          <div class="restMeta">${r.neighborhood} · ${r.cuisine_type}</div>
+          <div class="restRating">${r.avg_rating ? "★ " + r.avg_rating.toFixed(1) : ""}</div>
         </div>`;
     })
     .join("");
+  box.querySelectorAll(".restCard").forEach((card) => {
+    card.addEventListener("click", () => selectRestaurant(Number(card.dataset.id)));
+  });
+}
 
-  list.querySelectorAll("button[data-item]").forEach((btn) => {
+async function selectRestaurant(id) {
+  state.restaurantId = id;
+  state.cart = [];
+  renderCart();
+  el("etaResult").classList.add("hidden");
+  renderRestaurantList(); // refresh "selected" highlight
+  renderRestaurantHeader();
+  await Promise.all([loadMenu(), loadSeats()]);
+}
+
+function renderRestaurantHeader() {
+  const r = state.allRestaurants.find((x) => x.restaurant_id === state.restaurantId);
+  if (!r) return;
+  const icon = CUISINE_ICON[r.cuisine_type] || "🍽️";
+  el("restaurantHeader").innerHTML = `
+    <div class="rhName">${icon} ${r.name}</div>
+    <div class="rhMeta">
+      <span class="badge">${r.neighborhood}</span>
+      <span class="badge">${r.cuisine_type}</span>
+      <span class="badge">${r.price_tier || ""}</span>
+      ${r.avg_rating ? `<span class="badge rating">★ ${r.avg_rating.toFixed(1)}</span>` : ""}
+    </div>`;
+}
+
+// ---------------------------------------------------------------
+// Menu, grouped by category, with dietary filter + qty steppers
+// ---------------------------------------------------------------
+async function loadMenu() {
+  const { menu } = await api(`/restaurants/${state.restaurantId}/menu?user_id=${state.userId}`);
+  const groups = {};
+  menu.forEach((item) => {
+    const cat = item.category || "Entrees";
+    (groups[cat] = groups[cat] || []).push(item);
+  });
+
+  const box = el("menuGroups");
+  if (!menu.length) {
+    box.innerHTML = `<p class="hint">No items match this diner's dietary restrictions at this restaurant.</p>`;
+    return;
+  }
+
+  const orderedCats = CATEGORY_ORDER.filter((c) => groups[c]).concat(Object.keys(groups).filter((c) => !CATEGORY_ORDER.includes(c)));
+
+  box.innerHTML = orderedCats
+    .map((cat) => `
+      <div class="categoryBlock">
+        <div class="categoryTitle">${CATEGORY_LABEL[cat] || cat}</div>
+        ${groups[cat].map((item) => menuItemHtml(item)).join("")}
+      </div>`)
+    .join("");
+
+  box.querySelectorAll(".stepper").forEach((stepper) => {
+    const itemId = Number(stepper.dataset.item);
+    stepper.querySelector(".plus").addEventListener("click", () => changeQty(itemId, 1));
+    stepper.querySelector(".minus").addEventListener("click", () => changeQty(itemId, -1));
+  });
+  box.querySelectorAll(".addBtn").forEach((btn) => {
     btn.addEventListener("click", () => addToCart(JSON.parse(btn.dataset.item)));
   });
 }
 
+function menuItemHtml(item) {
+  const price = item.discount_price || item.price;
+  const inCart = state.cart.find((c) => c.item_id === item.item_id);
+  const badges = [
+    item.is_vegetarian ? "Vegetarian" : null,
+    item.is_vegan ? "Vegan" : null,
+    item.is_gluten_free ? "Gluten-free" : null,
+  ].filter(Boolean).map((b) => `<span class="dietPill">${b}</span>`).join("");
+
+  const rightControl = inCart
+    ? `<div class="stepper" data-item="${item.item_id}">
+         <button class="minus">\u2212</button>
+         <span class="qty">${inCart.quantity}</span>
+         <button class="plus">+</button>
+       </div>`
+    : `<button class="addBtn" data-item='${JSON.stringify({ item_id: item.item_id, name: item.name, price })}'>Add</button>`;
+
+  return `
+    <div class="menuItem">
+      <div>
+        <div class="miName">${item.name}</div>
+        <div class="miDesc">${item.description || ""}</div>
+        ${badges ? `<div class="dietBadges">${badges}</div>` : ""}
+      </div>
+      <div class="miRight">
+        <div class="miPrice">$${price.toFixed(2)}</div>
+        ${rightControl}
+      </div>
+    </div>`;
+}
+
 function addToCart(item) {
-  const existing = state.cart.find((c) => c.item_id === item.item_id);
-  if (existing) existing.quantity += 1;
-  else state.cart.push({ ...item, quantity: 1 });
+  state.cart.push({ ...item, quantity: 1 });
   renderCart();
+  loadMenu();
+  el("etaResult").classList.add("hidden");
+}
+
+function changeQty(itemId, delta) {
+  const row = state.cart.find((c) => c.item_id === itemId);
+  if (!row) return;
+  row.quantity += delta;
+  if (row.quantity <= 0) state.cart = state.cart.filter((c) => c.item_id !== itemId);
+  renderCart();
+  loadMenu();
   el("etaResult").classList.add("hidden");
 }
 
@@ -141,7 +277,7 @@ async function placeOrder() {
     showEta(result.eta);
     state.cart = [];
     renderCart();
-    await loadSeats();
+    await Promise.all([loadMenu(), loadSeats()]);
   } catch (err) {
     alert("Order failed: " + err.message);
   } finally {

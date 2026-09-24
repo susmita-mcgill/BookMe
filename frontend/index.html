@@ -12,11 +12,7 @@
     <div class="brand">BookMe</div>
     <div class="controls">
       <label>
-        Restaurant
-        <select id="restaurantSelect"></select>
-      </label>
-      <label>
-        Diner (for dietary filter)
+        Viewing as
         <select id="userSelect"></select>
       </label>
       <div class="tabs">
@@ -26,30 +22,46 @@
     </div>
   </header>
 
+  <div class="filterbar" id="filterbar">
+    <label class="filterLabel">
+      Area
+      <select id="areaSelect">
+        <option value="all">All areas</option>
+      </select>
+    </label>
+    <div class="cuisineChips" id="cuisineChips"></div>
+  </div>
+
   <main>
     <section id="orderView" class="view">
+      <div class="restaurantColumn">
+        <h2>Restaurants</h2>
+        <div id="restaurantList" class="restaurantList"></div>
+      </div>
+
       <div class="menuColumn">
-        <h2>Menu</h2>
-        <p class="hint">Automatically filtered by the selected diner's dietary tags and allergens.</p>
-        <div id="menuList" class="menuList"></div>
+        <div id="restaurantHeader" class="restaurantHeader"></div>
+        <div id="menuGroups" class="menuGroups"></div>
       </div>
 
-      <div class="cartColumn">
-        <h2>Your order</h2>
-        <div id="cartList" class="cartList"><p class="empty">No items yet — add something from the menu.</p></div>
-        <div class="cartTotal" id="cartTotal"></div>
-        <button id="placeOrderBtn" class="primary" disabled>Place order</button>
+      <div class="sideColumn">
+        <div class="cartCard">
+          <h2>Your order</h2>
+          <div id="cartList" class="cartList"><p class="empty">No items yet — add something from the menu.</p></div>
+          <div class="cartTotal" id="cartTotal"></div>
+          <button id="placeOrderBtn" class="primary" disabled>Place order</button>
 
-        <div id="etaResult" class="etaResult hidden">
-          <h3>Estimated prep time</h3>
-          <div class="etaBig"><span id="etaMinutes">--</span> min</div>
-          <ul id="etaBreakdown" class="etaBreakdown"></ul>
+          <div id="etaResult" class="etaResult hidden">
+            <h3>Estimated prep time</h3>
+            <div class="etaBig"><span id="etaMinutes">--</span> min</div>
+            <ul id="etaBreakdown" class="etaBreakdown"></ul>
+          </div>
         </div>
-      </div>
 
-      <div class="seatColumn">
-        <h2>Live seat availability</h2>
-        <div id="seatGrid" class="seatGrid"></div>
+        <div class="seatCard">
+          <h2>Live seat availability</h2>
+          <div id="seatGrid" class="seatGrid"></div>
+        </div>
       </div>
     </section>
 
@@ -66,7 +78,7 @@
   </main>
 
   <footer>
-    Demo scope only — see README for what's real vs. stubbed (Toast POS push, payment charging).
+    Demo scope only — Toast POS push and payment charging are intentional stubs, not built for this demo.
   </footer>
 
   <script src="app.js"></script>
