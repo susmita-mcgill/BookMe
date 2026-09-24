@@ -54,6 +54,51 @@ MENU_ITEM_NAMES = {
     "Desserts": ["Tiramisu", "Cheesecake", "Mango Sticky Rice", "Chocolate Cake", "Gulab Jamun"],
     "Drinks": ["House Red Wine", "Iced Tea", "Craft Lager", "Lemonade", "Espresso", "Mocktail"],
 }
+
+DISH_DESCRIPTIONS = {
+    "Bruschetta": "Toasted sourdough topped with diced tomato, basil, and a drizzle of olive oil.",
+    "Spring Rolls": "Hand-rolled with crisp vegetables and glass noodles, served with a tangy dipping sauce.",
+    "Hummus Plate": "Creamy chickpea hummus with warm pita, olive oil, and a pinch of paprika.",
+    "Calamari": "Lightly fried and served with a squeeze of lemon and house marinara.",
+    "Soup of the Day": "A rotating seasonal soup made fresh each morning from scratch.",
+    "Nachos": "Crisp tortilla chips loaded with melted cheese, jalapenos, and pico de gallo.",
+    "Grilled Salmon": "Cedar-plank grilled salmon finished with a citrus herb butter.",
+    "Margherita Pizza": "Wood-fired with san marzano tomatoes, fresh mozzarella, and basil.",
+    "Pad Thai": "Stir-fried rice noodles with egg, bean sprouts, and a tamarind-lime sauce.",
+    "Butter Chicken": "Tender chicken simmered in a rich, spiced tomato-butter gravy.",
+    "Veggie Bowl": "Roasted seasonal vegetables over grains with a tahini drizzle.",
+    "Steak Frites": "Grilled sirloin with garlic herb butter, served with crispy fries.",
+    "Tacos al Pastor": "Marinated pork with pineapple, onion, and cilantro on corn tortillas.",
+    "Bibimbap": "Warm rice bowl with sauteed vegetables, egg, and a spicy gochujang sauce.",
+    "Pasta Primavera": "Fresh seasonal vegetables tossed with pasta in a light garlic-olive oil sauce.",
+    "Fried Rice": "Wok-tossed rice with egg, scallions, and your choice of protein.",
+    "Tiramisu": "Espresso-soaked ladyfingers layered with mascarpone cream and cocoa.",
+    "Cheesecake": "A classic creamy cheesecake with a graham cracker crust.",
+    "Mango Sticky Rice": "Sweet coconut sticky rice served with fresh ripe mango.",
+    "Chocolate Cake": "A rich, layered dark chocolate cake with a silky ganache.",
+    "Gulab Jamun": "Warm milk-solid dumplings soaked in a fragrant rose-cardamom syrup.",
+    "House Red Wine": "A house-selected red, poured by the glass.",
+    "Iced Tea": "Freshly brewed and lightly sweetened, served over ice.",
+    "Craft Lager": "A local brewery's crisp, easy-drinking lager on tap.",
+    "Lemonade": "Fresh-squeezed, made in-house daily.",
+    "Espresso": "A double shot, pulled to order.",
+    "Mocktail": "A rotating house mocktail made with fresh juice and soda.",
+}
+
+RESTAURANT_BLURB_TEMPLATES = [
+    "A neighborhood favorite for {cuisine_lower} food in a relaxed, modern setting.",
+    "Known for {cuisine_lower} classics and a warm, welcoming dining room.",
+    "A cozy {cuisine_lower} spot with a focus on fresh, seasonal ingredients.",
+    "Casual {cuisine_lower} dining with a lively atmosphere, popular with regulars.",
+    "An intimate {cuisine_lower} kitchen known for generous portions and friendly service.",
+    "A modern take on {cuisine_lower} cuisine, with a menu that changes with the seasons.",
+]
+
+SEATING_FEATURES = {
+    "main dining": ["Window view", "Center of the dining room", "Quiet corner", "Near the open kitchen", "Booth seating"],
+    "patio": ["Garden-view patio", "Covered patio", "String-lit outdoor seating", "Street-side patio view"],
+    "bar": ["Bar-side seating", "High-top near the bar", "Bar view of the open kitchen"],
+}
 MODIFIER_POOL = [("Extra cheese", 1.50), ("No onions", 0.0), ("Add avocado", 2.00),
                  ("Spicy", 0.0), ("On the side", 0.0), ("Extra sauce", 0.75), ("No cilantro", 0.0)]
 
@@ -126,7 +171,7 @@ for rid in range(1, 16):
     restaurants.append({
         "restaurant_id": rid,
         "name": f"{cuisine} {random.choice(NAME_WORDS)}",
-        "description": f"A {cuisine.lower()} spot known for a relaxed, modern dining room.",
+        "description": random.choice(RESTAURANT_BLURB_TEMPLATES).format(cuisine_lower=cuisine.lower()),
         "cuisine_type": cuisine,
         "price_tier": random.choice(PRICE_TIERS),
         "address_line1": f"{random.randint(100, 4999)} N Main St",
@@ -173,10 +218,11 @@ for r in restaurants:
     n_tables = max(4, r["seats_total"] // 4)
     tlist = []
     for _ in range(n_tables):
+        zone = random.choice(["main dining", "patio", "bar", "main dining"])
         row = {
             "table_id": tid, "restaurant_id": r["restaurant_id"],
             "table_number": f"T{tid:03d}", "capacity": random.choice([2, 2, 4, 4, 6, 8]),
-            "location_zone": random.choice(["main dining", "patio", "bar", "main dining"]),
+            "location_zone": zone, "seating_feature": random.choice(SEATING_FEATURES[zone]),
             "status": "available", "updated_at": NOW.isoformat(),
         }
         restaurant_tables.append(row)
@@ -258,10 +304,11 @@ for r in restaurants:
         n_items = random.randint(2, 3)
         for _ in range(n_items):
             price = round(random.uniform(6, 42), 2)
+            dish_name = random.choice(MENU_ITEM_NAMES[cat["name"]])
             row = {
                 "item_id": item_id, "restaurant_id": r["restaurant_id"], "category_id": cat["category_id"],
-                "name": random.choice(MENU_ITEM_NAMES[cat["name"]]),
-                "description": "House specialty, made fresh to order.",
+                "name": dish_name,
+                "description": DISH_DESCRIPTIONS.get(dish_name, "Made fresh to order."),
                 "price": price,
                 "discount_price": round(price * 0.85, 2) if random.random() < 0.1 else None,
                 "calories": random.randint(150, 950),
@@ -644,7 +691,7 @@ CREATE TABLE restaurants (
 CREATE TABLE restaurant_hours (hours_id INTEGER PRIMARY KEY, restaurant_id INTEGER, day_of_week TEXT,
     open_time TEXT, close_time TEXT, is_closed INTEGER);
 CREATE TABLE restaurant_tables (table_id INTEGER PRIMARY KEY, restaurant_id INTEGER, table_number TEXT,
-    capacity INTEGER, location_zone TEXT, status TEXT, updated_at TEXT);
+    capacity INTEGER, location_zone TEXT, seating_feature TEXT, status TEXT, updated_at TEXT);
 CREATE TABLE restaurant_staff (staff_id INTEGER PRIMARY KEY, restaurant_id INTEGER, full_name TEXT,
     role TEXT, hourly_wage REAL, hire_date TEXT, is_active INTEGER);
 CREATE TABLE shifts (shift_id INTEGER PRIMARY KEY, restaurant_id INTEGER, staff_id INTEGER,

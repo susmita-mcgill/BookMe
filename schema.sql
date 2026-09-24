@@ -118,6 +118,7 @@ CREATE TABLE restaurant_tables (
     table_number    TEXT,
     capacity        INT,
     location_zone   TEXT,                    -- 'patio', 'main dining', 'bar'
+    seating_feature TEXT,                    -- e.g. 'Window view', 'Garden-view patio', 'Bar-side seating'
     status          TEXT CHECK (status IN ('available','seated','reserved','out_of_service')) DEFAULT 'available',
     updated_at      TIMESTAMP DEFAULT NOW()
 );
