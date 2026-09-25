@@ -11,7 +11,7 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dish_facts import DISH_FACTS  # noqa: E402
+from dish_facts import DISH_FACTS, modifier_options  # noqa: E402
 
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dining_app.db")
 
@@ -32,8 +32,21 @@ def main():
         conn.execute("UPDATE menu_items SET is_vegetarian = ?, is_vegan = ?, is_gluten_free = ?, spice_level = ? WHERE item_id = ?",
                      (veg, vegan, gf, spice, item_id))
         fixed += 1
+    # Customize options by dish type; keep modifier ids so past orders still link.
+    rows = conn.execute("""SELECT im.modifier_id, im.item_id, mi.name, mc.name, r.cuisine_type
+                           FROM item_modifiers im JOIN menu_items mi ON mi.item_id = im.item_id
+                           JOIN menu_categories mc ON mc.category_id = mi.category_id
+                           JOIN restaurants r ON r.restaurant_id = mi.restaurant_id
+                           ORDER BY im.item_id, im.modifier_id""").fetchall()
+    seen = {}
+    for mod_id, item_id, dish, category, cuisine in rows:
+        opts = modifier_options(dish, category, cuisine)
+        k = seen.get(item_id, 0)
+        seen[item_id] = k + 1
+        name, delta = opts[k % len(opts)]
+        conn.execute("UPDATE item_modifiers SET name = ?, price_delta = ? WHERE modifier_id = ?", (name, delta, mod_id))
     conn.commit()
-    print(f"Fixed {fixed} of {len(items)} menu items.")
+    print(f"Fixed {fixed} of {len(items)} menu items and {len(rows)} customize options.")
     if missing:
         print("No facts for:", ", ".join(missing))
 

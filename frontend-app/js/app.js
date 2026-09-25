@@ -117,9 +117,16 @@ function allowedFor(items, user) {
   const ex = Models.excludedAllergens(user);
   return new Set(items.filter((i) => !i.allergens.some((a) => ex.has(a))).map((i) => i.item_id));
 }
+// Food only: a place whose only safe items are drinks isn't a place to eat.
 function safeDishCount(r, user = groupUser()) {
-  const items = BOOKME_SNAPSHOT.menus[r.restaurant_id] || [];
+  const items = (BOOKME_SNAPSHOT.menus[r.restaurant_id] || []).filter((i) => i.category !== "Drinks");
   return allowedFor(items, user).size;
+}
+// Customize options that would add an allergen the table avoids are hidden.
+const MOD_ALLERGEN = { "Extra cheese": "dairy", "Add feta": "dairy", "Add a scoop of ice cream": "dairy", "Add fried egg": "eggs", "Extra peanuts": "nuts", "Add naan": "gluten", "Extra pita": "gluten", "Add a biscuit": "gluten" };
+function safeMods(d) {
+  const ex = Models.excludedAllergens(groupUser());
+  return (d.modifiers || []).filter((m) => !ex.has(MOD_ALLERGEN[m.name]));
 }
 
 // ---- Dish recommender feedback (slide "Dish Recommender": what it learns from).
@@ -371,7 +378,7 @@ SCREENS.home = {
                 <span>${esc(r.cuisine_type)}</span><span class="dot"></span><span>${esc(r.price_tier || "")}</span>
                 ${r.avg_rating ? `<span class="dot"></span><span class="r-rating">★ ${r.avg_rating.toFixed(1)}</span>` : ""}
               </div>
-              ${tags.length ? `<p class="r-fit">${r.safe} dishes fit your table</p>` : ""}
+              ${tags.length ? `<p class="r-fit">${r.safe} dish${r.safe === 1 ? " fits" : "es fit"} your table</p>` : ""}
             </div>
             <span class="chev">${icons.chev}</span>
           </button>`).join("")}
@@ -584,7 +591,7 @@ SCREENS.menu = {
                   </span>`}
                 </div>
                 <div class="dish-toggles">
-                  ${d.modifiers && d.modifiers.length && d.fit.level !== "blocked" ? (() => {
+                  ${safeMods(d).length && d.fit.level !== "blocked" ? (() => {
                     const cartLine = state.cart.find((c) => c.item_id === d.item_id);
                     const selected = cartLine?.selectedMods || [];
                     return `<button class="why-btn customize-btn" data-customize="${d.item_id}">${state.showCustomize.has(d.item_id) ? "Hide options" : `Customize${selected.length ? ` (${selected.length})` : ""}`}</button>`;
@@ -595,10 +602,10 @@ SCREENS.menu = {
                   ${d.parts && !grey(d) ? PARTS.map(([k, l]) => `<div class="score-row"><span>${l}</span><div class="bar ${d.parts[k] < 70 ? "low" : ""}"><span style="width:${d.parts[k]}%"></span></div><b class="num">${d.parts[k]}</b></div>`).join("") : ""}
                   ${[dietLine(d), ...(d.notes || [])].filter(Boolean).map(([k, val]) => `<div class="why-row"><span>${esc(k)}</span><b class="num">${esc(val)}</b></div>`).join("")}
                 </div>` : ""}
-                ${d.modifiers && d.modifiers.length && state.showCustomize.has(d.item_id) ? (() => {
+                ${safeMods(d).length && state.showCustomize.has(d.item_id) ? (() => {
                   const cartLine = state.cart.find((c) => c.item_id === d.item_id);
                   const selected = cartLine?.selectedMods || [];
-                  return `<div class="mod-list">${d.modifiers.map((m) => `
+                  return `<div class="mod-list">${safeMods(d).map((m) => `
                     <label class="mod-row">
                       <input type="checkbox" data-mod="${d.item_id}:${m.modifier_id}" ${selected.some((sm) => sm.modifier_id === m.modifier_id) ? "checked" : ""}>
                       <span class="mod-name">${esc(m.name)}</span>

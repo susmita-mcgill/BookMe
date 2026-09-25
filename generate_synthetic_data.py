@@ -17,7 +17,7 @@ import sqlite3
 from datetime import datetime, timedelta, date, time
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "synthetic_data"))
-from dish_facts import DISH_FACTS  # real allergens / diet flags / spice per dish
+from dish_facts import DISH_FACTS, modifier_options  # real allergens / diet flags / spice / options per dish
 
 random.seed(42)
 
@@ -480,6 +480,11 @@ mod_id = 1
 modifiers_by_item = {}
 for mi in menu_items:
     mods = random.sample(MODIFIER_POOL, k=random.randint(2, 4))
+    # Options that fit the dish (synthetic_data/dish_facts.py); the draw above
+    # still runs so the rest of the random data is unchanged.
+    _cat = next(c["name"] for c in menu_categories if c["category_id"] == mi["category_id"])
+    _cuisine = next(r["cuisine_type"] for r in restaurants if r["restaurant_id"] == mi["restaurant_id"])
+    mods = modifier_options(mi["name"], _cat, _cuisine)[:len(mods)]
     mlist = []
     for name, delta in mods:
         row = {"modifier_id": mod_id, "item_id": mi["item_id"], "name": name,
