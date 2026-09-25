@@ -186,7 +186,8 @@ def list_restaurants():
     (area/cuisine filtering, price tier and rating badges, a one-line blurb)."""
     conn = get_db()
     rows = conn.execute(
-        """SELECT restaurant_id, name, description, neighborhood, cuisine_type, price_tier, avg_rating
+        """SELECT restaurant_id, name, description, neighborhood, cuisine_type, price_tier, avg_rating,
+                  health_inspection_score
            FROM restaurants ORDER BY restaurant_id"""
     ).fetchall()
     conn.close()
