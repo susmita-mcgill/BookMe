@@ -430,8 +430,24 @@ SCREENS.restaurant = {
         <h2 class="display" style="margin:18px 0 4px">${esc(r.name)}</h2>
         <div class="addr-row">${icons.pin}<span>${esc(r.address_line1 || r.neighborhood)}, Chicago</span></div>
         <b style="font-size:14px">${esc(r.cuisine_type)} · ${esc(r.price_tier || "")}${r.avg_rating ? ` · ★ ${r.avg_rating.toFixed(1)}${r.total_reviews ? ` (${r.total_reviews})` : ""}` : ""}</b>
+        ${r.health_inspection_score ? `<div class="health-badge">${icons.tick} Health inspection: ${r.health_inspection_score.toFixed(1)}/100</div>` : ""}
         ${r.description ? `<p class="r-blurb">${esc(r.description)}</p>` : ""}
         ${state.cart.length ? `<div class="filter-banner" style="margin-top:14px">${icons.tick}<span>${esc(state.cart.map((c) => c.name).join(", "))} is in your order. Reserve, then add anything else from the menu.</span></div>` : ""}
+
+        ${(() => {
+          const top = [...(state.menu?.items || [])].sort((a, b) => (b.popularity_score || 0) - (a.popularity_score || 0)).slice(0, 3);
+          if (!top.length) return "";
+          return `
+            <h3 class="h2">Popular here</h3>
+            <div class="popular-strip">
+              ${top.map((d) => `
+                <button class="popular-card" data-popular-jump>
+                  ${photo(BOOKME_IMAGES.dish(d, r.cuisine_type), "", "popular-photo")}
+                  <span class="popular-name">${esc(d.name)}</span>
+                  <span class="popular-price num">${money(d.discount_price || d.price)}</span>
+                </button>`).join("")}
+            </div>`;
+        })()}
 
         <div class="card seats-card">
           <div class="seats-head"><span class="seats-title">Live seats</span><span class="live-dot"></span></div>
@@ -458,6 +474,7 @@ SCREENS.restaurant = {
       <div class="footer"><button class="btn" data-reserve>${fits ? `Reserve for ${state.party}` : `Request a table for ${state.party}`}</button></div>`;
   },
   bind(v) {
+    v.querySelectorAll("[data-popular-jump]").forEach((b) => b.addEventListener("click", () => go("menu")));
     v.querySelectorAll("[data-slot]").forEach((b) => b.addEventListener("click", () => { state.slot = b.dataset.slot; render(false, true); }));
     v.querySelectorAll("[data-party]").forEach((b) => b.addEventListener("click", () => { state.party = Math.min(8, Math.max(1, state.party + Number(b.dataset.party))); render(false, true); }));
     v.querySelectorAll("[data-zone]").forEach((b) => b.addEventListener("click", () => { state.seatZone = b.dataset.zone || null; render(false, true); }));
