@@ -44,8 +44,11 @@ window.Data = (function () {
 
   async function users() {
     if (!live) return snap.users;
-    const { users } = await get("/users?limit=40");
-    return users;
+    // The API returns id, name and dietary tags; price sensitivity and favourite
+    // cuisine come from the snapshot catalog.
+    const catalog = Object.fromEntries(snap.users.map((u) => [u.user_id, u]));
+    const { users } = await get("/users?limit=300");
+    return users.map((u) => ({ ...catalog[u.user_id], ...u }));
   }
 
   // Returns every item on the menu, plus the ids the diner is allowed to order.

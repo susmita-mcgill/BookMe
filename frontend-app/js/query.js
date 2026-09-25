@@ -118,7 +118,7 @@ window.Query = (function () {
     if (out.budget) out.understood.push(out.budget);
     if (out.party) out.understood.push(out.party === 1 ? "Just you" : `Party of ${out.party}`);
     out.tags.forEach((t) => out.understood.push("+ " + t));
-    if (out.occasion) out.understood.push({ quick: "Quick bite", talk: "A night to talk", celebrate: "Celebrating" }[out.occasion]);
+    // Occasion is parsed but not shown: it feeds the group restaurant recommender in Phase 2.
     if (out.spicy) out.understood.push("Spicy");
     out.terms.forEach((t) => out.understood.push(`“${t}”`));
     return out;

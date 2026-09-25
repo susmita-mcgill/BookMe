@@ -31,7 +31,7 @@ async def main():
         print("source:", await page.inner_text("#demoSource"))
         await shot("00-search")
         # A sentence: constraints are read out of it, the rest is the craving
-        await page.fill("[data-q]", "Cheap Korean for 4, one's vegan")
+        await page.fill("[data-q]", "Cheap Italian for 4, one's vegan")
         print("parsed:", (await page.inner_text("[data-understood]")).replace("\n", " | "), "->", await page.inner_text("[data-find]"))
         await page.fill("[data-q]", "")
         await page.click("[data-suggest] >> nth=0")  # "Spicy noodles"
@@ -55,7 +55,10 @@ async def main():
         await page.click("[data-reserve]")
         await page.wait_for_selector(".sheet")
         await shot("03-reserved")
-        await page.click("[data-menu]")
+        await page.click("[data-checkin]")
+        await page.wait_for_selector(".geo-confirmed", timeout=4000)  # simulated check-in delay
+        await shot("03b-checked-in")
+        await page.click("[data-menu-early]")
         await page.wait_for_selector(".dish-card")
         await shot("04-menu")
 

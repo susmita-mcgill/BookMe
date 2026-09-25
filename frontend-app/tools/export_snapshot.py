@@ -32,7 +32,7 @@ def main():
     restaurants = rows(conn, """
         SELECT restaurant_id, name, description, cuisine_type, price_tier, address_line1,
                neighborhood, city, latitude, longitude, seats_total, avg_prep_time_minutes,
-               avg_rating, total_reviews
+               avg_rating, total_reviews, health_inspection_score
         FROM restaurants WHERE is_active = 1 ORDER BY restaurant_id""")
 
     users = rows(conn, """
@@ -42,8 +42,7 @@ def main():
         LEFT JOIN user_dietary_tags udt ON udt.user_id = u.user_id
         LEFT JOIN dietary_tags dt ON dt.dietary_tag_id = udt.dietary_tag_id
         GROUP BY u.user_id
-        ORDER BY (dietary_tags IS NULL), u.user_id
-        LIMIT 40""")
+        ORDER BY (dietary_tags IS NULL), u.user_id""")
 
     # Full menus with allergens, same fields as GET /restaurants/{id}/menu,
     # plus prep_time_minutes so the offline ETA can use the same formula.

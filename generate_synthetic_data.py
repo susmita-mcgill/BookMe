@@ -55,6 +55,72 @@ MENU_ITEM_NAMES = {
     "Drinks": ["House Red Wine", "Iced Tea", "Craft Lager", "Lemonade", "Espresso", "Mocktail"],
 }
 
+# Cuisine-specific menus, so a restaurant's dishes actually match its cuisine_type
+# (previously dishes were pooled globally by category only, so a Mexican
+# restaurant could end up serving Butter Chicken).
+CUISINE_MENU = {
+    "Italian": {
+        "Appetizers": ["Bruschetta", "Caprese Salad", "Arancini"],
+        "Entrees": ["Margherita Pizza", "Pasta Primavera", "Chicken Parmesan"],
+        "Desserts": ["Tiramisu", "Panna Cotta"],
+        "Drinks": ["House Red Wine", "Espresso"],
+    },
+    "Mexican": {
+        "Appetizers": ["Guacamole & Chips", "Elote", "Nachos"],
+        "Entrees": ["Tacos al Pastor", "Enchiladas Verdes", "Carne Asada"],
+        "Desserts": ["Churros", "Tres Leches Cake"],
+        "Drinks": ["Horchata", "Mocktail"],
+    },
+    "Thai": {
+        "Appetizers": ["Spring Rolls", "Tom Kha Soup", "Satay Skewers"],
+        "Entrees": ["Pad Thai", "Green Curry", "Drunken Noodles"],
+        "Desserts": ["Mango Sticky Rice", "Thai Tea Panna Cotta"],
+        "Drinks": ["Thai Iced Tea", "Lemonade"],
+    },
+    "American": {
+        "Appetizers": ["Nachos", "Calamari", "Soup of the Day"],
+        "Entrees": ["Steak Frites", "Veggie Bowl", "Grilled Salmon"],
+        "Desserts": ["Cheesecake", "Chocolate Cake"],
+        "Drinks": ["Craft Lager", "Lemonade"],
+    },
+    "Indian": {
+        "Appetizers": ["Samosas", "Papadum", "Onion Bhaji"],
+        "Entrees": ["Butter Chicken", "Chana Masala", "Lamb Vindaloo"],
+        "Desserts": ["Gulab Jamun", "Kheer"],
+        "Drinks": ["Mango Lassi", "Chai"],
+    },
+    "Vietnamese": {
+        "Appetizers": ["Fresh Spring Rolls", "Banh Xeo"],
+        "Entrees": ["Pho", "Bun Cha", "Vermicelli Bowl"],
+        "Desserts": ["Che", "Coconut Pudding"],
+        "Drinks": ["Vietnamese Iced Coffee", "Iced Tea"],
+    },
+    "Mediterranean": {
+        "Appetizers": ["Hummus Plate", "Falafel", "Baba Ganoush"],
+        "Entrees": ["Chicken Shawarma", "Lamb Gyro", "Veggie Bowl"],
+        "Desserts": ["Baklava", "Rice Pudding"],
+        "Drinks": ["Mint Lemonade", "House Red Wine"],
+    },
+    "Korean": {
+        "Appetizers": ["Kimchi Pancake", "Mandu Dumplings"],
+        "Entrees": ["Bibimbap", "Bulgogi", "Japchae"],
+        "Desserts": ["Bingsu", "Rice Cake"],
+        "Drinks": ["Iced Tea", "Craft Lager"],
+    },
+    "Southern": {
+        "Appetizers": ["Fried Green Tomatoes", "Deviled Eggs", "Hush Puppies"],
+        "Entrees": ["Fried Chicken", "BBQ Ribs", "Shrimp and Grits"],
+        "Desserts": ["Peach Cobbler", "Banana Pudding"],
+        "Drinks": ["Sweet Tea", "Craft Lager"],
+    },
+    "Vegan": {
+        "Appetizers": ["Hummus Plate", "Vegetable Spring Rolls"],
+        "Entrees": ["Veggie Bowl", "Vegan Fried Rice", "Jackfruit Tacos"],
+        "Desserts": ["Vegan Chocolate Cake", "Mango Sticky Rice"],
+        "Drinks": ["Iced Tea", "Mocktail"],
+    },
+}
+
 DISH_DESCRIPTIONS = {
     "Bruschetta": "Toasted sourdough topped with diced tomato, basil, and a drizzle of olive oil.",
     "Spring Rolls": "Hand-rolled with crisp vegetables and glass noodles, served with a tangy dipping sauce.",
@@ -83,6 +149,66 @@ DISH_DESCRIPTIONS = {
     "Lemonade": "Fresh-squeezed, made in-house daily.",
     "Espresso": "A double shot, pulled to order.",
     "Mocktail": "A rotating house mocktail made with fresh juice and soda.",
+    # Cuisine-specific dishes (added alongside CUISINE_MENU)
+    "Caprese Salad": "Fresh mozzarella, ripe tomato, and basil with a balsamic drizzle.",
+    "Arancini": "Crispy fried risotto balls stuffed with mozzarella.",
+    "Chicken Parmesan": "Breaded chicken cutlet, marinara, and melted mozzarella over pasta.",
+    "Panna Cotta": "A silky vanilla custard topped with fresh berry sauce.",
+    "Guacamole & Chips": "Fresh-mashed avocado with lime, cilantro, and warm tortilla chips.",
+    "Elote": "Grilled corn on the cob with crema, cotija cheese, and chili powder.",
+    "Enchiladas Verdes": "Corn tortillas rolled with chicken in a tangy tomatillo sauce.",
+    "Carne Asada": "Grilled marinated steak, sliced thin, served with rice and beans.",
+    "Churros": "Fried dough dusted in cinnamon sugar, served with chocolate dipping sauce.",
+    "Tres Leches Cake": "A sponge cake soaked in three kinds of milk, topped with whipped cream.",
+    "Horchata": "A sweet, creamy rice and cinnamon drink, served over ice.",
+    "Tom Kha Soup": "Coconut milk soup with galangal, lemongrass, and mushrooms.",
+    "Satay Skewers": "Grilled marinated skewers served with a peanut dipping sauce.",
+    "Green Curry": "A creamy coconut curry with Thai basil and your choice of protein.",
+    "Drunken Noodles": "Wide rice noodles stir-fried with basil, chili, and vegetables.",
+    "Thai Tea Panna Cotta": "A Thai-tea-infused custard topped with condensed milk.",
+    "Thai Iced Tea": "Sweet, spiced black tea served over ice with condensed milk.",
+    "Samosas": "Crispy pastry filled with spiced potatoes and peas, served with chutney.",
+    "Papadum": "Thin, crispy lentil crackers served with a trio of chutneys.",
+    "Onion Bhaji": "Crispy onion fritters spiced with cumin and coriander.",
+    "Chana Masala": "Chickpeas simmered in a spiced tomato and onion gravy.",
+    "Lamb Vindaloo": "A fiery, tangy lamb curry with vinegar and warming spices.",
+    "Kheer": "A creamy rice pudding flavored with cardamom and pistachio.",
+    "Mango Lassi": "A cooling yogurt smoothie blended with sweet mango.",
+    "Chai": "Spiced black tea simmered with milk, cardamom, and cinnamon.",
+    "Fresh Spring Rolls": "Rice paper rolls with herbs, vermicelli, and shrimp or tofu, served fresh (not fried).",
+    "Banh Xeo": "A crispy turmeric crepe filled with pork, shrimp, and bean sprouts.",
+    "Pho": "A slow-simmered beef or chicken broth with rice noodles and fresh herbs.",
+    "Bun Cha": "Grilled pork patties over rice vermicelli with a tangy dipping sauce.",
+    "Vermicelli Bowl": "Rice noodles topped with grilled protein, herbs, and pickled vegetables.",
+    "Che": "A layered Vietnamese sweet dessert with beans, jelly, and coconut milk.",
+    "Coconut Pudding": "A silky coconut-milk pudding topped with toasted coconut.",
+    "Vietnamese Iced Coffee": "Strong drip coffee sweetened with condensed milk, served over ice.",
+    "Falafel": "Crispy fried chickpea fritters served with tahini sauce.",
+    "Baba Ganoush": "Smoky roasted eggplant dip with tahini, lemon, and garlic.",
+    "Chicken Shawarma": "Marinated chicken, slow-roasted and shaved, served with garlic sauce.",
+    "Lamb Gyro": "Spiced lamb wrapped in warm pita with tzatziki and fresh vegetables.",
+    "Baklava": "Layers of flaky phyllo, chopped nuts, and honey syrup.",
+    "Rice Pudding": "A creamy, lightly spiced rice pudding served chilled.",
+    "Mint Lemonade": "Fresh-squeezed lemonade muddled with mint leaves.",
+    "Kimchi Pancake": "A savory, crispy pancake made with fermented kimchi.",
+    "Mandu Dumplings": "Pan-fried dumplings filled with pork and vegetables.",
+    "Bulgogi": "Thinly sliced marinated beef, grilled and slightly sweet.",
+    "Japchae": "Stir-fried glass noodles with vegetables and sesame oil.",
+    "Bingsu": "Shaved ice dessert topped with sweet red beans and condensed milk.",
+    "Rice Cake": "Chewy Korean rice cakes in a sweet, mildly spicy sauce.",
+    "Fried Green Tomatoes": "Cornmeal-crusted green tomatoes, fried crisp and golden.",
+    "Deviled Eggs": "Classic creamy deviled eggs with a paprika finish.",
+    "Hush Puppies": "Crispy fried cornmeal fritters, a Southern classic.",
+    "Fried Chicken": "Buttermilk-brined and fried until golden and crispy.",
+    "BBQ Ribs": "Slow-smoked pork ribs glazed with house barbecue sauce.",
+    "Shrimp and Grits": "Sauteed shrimp over creamy, buttery stone-ground grits.",
+    "Peach Cobbler": "Warm spiced peaches under a buttery, golden crust.",
+    "Banana Pudding": "Layers of vanilla wafers, banana, and creamy custard.",
+    "Sweet Tea": "Classic Southern-style iced tea, sweetened generously.",
+    "Vegetable Spring Rolls": "Crispy rolls packed with fresh, seasonal vegetables.",
+    "Vegan Fried Rice": "Wok-tossed rice with vegetables and plant-based protein.",
+    "Jackfruit Tacos": "Shredded jackfruit seasoned and seared, served taco-style.",
+    "Vegan Chocolate Cake": "A rich, moist chocolate cake made entirely plant-based.",
 }
 
 RESTAURANT_BLURB_TEMPLATES = [
@@ -301,10 +427,13 @@ menu_by_restaurant = {}
 for r in restaurants:
     ilist = []
     for cat in categories_by_restaurant[r["restaurant_id"]]:
-        n_items = random.randint(2, 3)
-        for _ in range(n_items):
+        # Use this restaurant's own cuisine's dish pool so a Mexican restaurant
+        # can't end up serving Butter Chicken. Falls back to the old generic
+        # pool only if a cuisine has no entry for this category.
+        pool = CUISINE_MENU.get(r["cuisine_type"], {}).get(cat["name"]) or MENU_ITEM_NAMES[cat["name"]]
+        n_items = min(random.randint(2, 3), len(pool))
+        for dish_name in random.sample(pool, k=n_items):  # sample, not choice — avoids repeating a dish on one menu
             price = round(random.uniform(6, 42), 2)
-            dish_name = random.choice(MENU_ITEM_NAMES[cat["name"]])
             row = {
                 "item_id": item_id, "restaurant_id": r["restaurant_id"], "category_id": cat["category_id"],
                 "name": dish_name,

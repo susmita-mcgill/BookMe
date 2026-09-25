@@ -5,6 +5,7 @@ const BEACHHEAD = ["Logan Square", "Wicker Park", "Bucktown"];
 const PIN = { lat: 41.9295, lng: -87.7087, label: "Logan Square" }; // Logan Square Blue Line stop
 const SLOTS = ["6:30", "7:00", "7:30", "8:00"];
 const CATEGORY_ORDER = ["Appetizers", "Entrees", "Desserts", "Drinks"];
+const catSlug = (cat) => cat.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 const SHIFT_HOURS = 5; // only used for the illustrative wage figure
 const TAX_RATE = 0.1025; // same as backend/main.py
 
@@ -13,10 +14,13 @@ const state = {
   users: [], user: null, friends: [],
   restaurants: [], restaurant: null, tables: [], menu: null,
   party: 3, slot: "7:30", seatZone: null,
-  query: { text: "", cuisine: null, budget: "$$", occasion: "talk", applied: false, relaxed: false, extraTags: [], parsed: null, editing: false, manual: {} },
-  cart: [], order: null, sending: false, error: "", showWhy: new Set(), showCustomize: new Set(),
+  query: { text: "", cuisine: null, budget: "$$", budgetSet: false, occasion: "talk", applied: false, relaxed: false, extraTags: [], parsed: null, editing: false, manual: {} },
+  cart: [], order: null, sending: false, error: "", showWhy: new Set(), showCustomize: new Set(), checkedIn: false,
   tipPct: 18, split: "even", assign: {},
   review: { stars: 0, text: "", skip: new Set() },
+  // Dish recommender feedback, kept for the session so the next visit shows it:
+  // rating moves match %, "Don't suggest" keeps a dish at 0, opened-but-not-added lowers it.
+  feedback: {}, openedThisVisit: new Set(),
   owner: { restaurantId: null, tab: "tonight", block: "dinner" },
   history: [], current: null,
 };
@@ -99,7 +103,7 @@ const people = () => [{ name: firstName(state.user), me: true }, ...state.friend
 
 const OCCASIONS = [["quick", "Quick bite"], ["talk", "A night to talk"], ["celebrate", "Celebrating"]];
 const OCCASION_LABEL = Object.fromEntries(OCCASIONS);
-const SUGGESTIONS = ["Spicy food", "Something with rice", "Cheap Korean for 4, one's vegan", "Birthday dinner, dessert after"];
+const SUGGESTIONS = ["Spicy food", "Something with rice", "Cheap Italian for 4, one's vegan", "Dessert to share"];
 
 // ---- The table: the diner's profile plus anyone the query adds ("one's vegan").
 // The strictest restriction in the group applies (model contract: dietary flags).
@@ -118,6 +122,22 @@ function safeDishCount(r, user = groupUser()) {
   return allowedFor(items, user).size;
 }
 
+// ---- Dish recommender feedback (slide "Dish Recommender": what it learns from).
+const fbKey = (id) => `${state.user.user_id}:${id}`;
+function withFeedback(itemId, score, fit) {
+  const fb = state.feedback[fbKey(itemId)];
+  if (!fb || fit.level === "blocked") return { ...score, notes: [] };
+  if (fb.dont) return { ...score, overall: 0, dont: true, notes: [["You asked not to suggest this", "0"]] };
+  let o = score.overall;
+  const notes = [];
+  if (fb.rating) { o += fb.rating; notes.push([`You rated your last visit ${fb.stars}★`, `${fb.rating > 0 ? "+" : "−"}${Math.abs(fb.rating)}`]); }
+  if (fb.opened) { o -= 3 * fb.opened; notes.push(["Opened, not added last time", `−${3 * fb.opened}`]); }
+  return { ...score, overall: Math.max(1, Math.min(99, o)), notes };
+}
+// Budget feeds the dish recommender (dish price per person); restaurant-level
+// budget waits for Phase 2 with the group restaurant recommender.
+const BUDGET_CAP = { $: 15, $$: 30, $$$: Infinity };
+
 // ---- The query. The text is parsed into constraints + a craving; anything the
 // diner set by hand in "Your table" wins over what the text implies.
 function allCuisines() { return [...new Set(state.restaurants.map((r) => r.cuisine_type))]; }
@@ -130,6 +150,7 @@ function effectiveQuery() {
     parsed: p,
     cuisine: pick("cuisine", p.cuisine, q.cuisine),
     budget: pick("budget", p.budget, q.budget),
+    budgetSet: !!(q.manual.budget || p.budget),
     occasion: pick("occasion", p.occasion, q.occasion),
     party: pick("party", p.party, state.party),
     tags: p.tags,
@@ -138,35 +159,32 @@ function effectiveQuery() {
 }
 function committedQuery() {
   const q = state.query;
-  return { text: q.text, parsed: q.parsed, cuisine: q.cuisine, budget: q.budget, occasion: q.occasion, party: state.party, tags: q.extraTags, applied: q.applied };
+  return { text: q.text, parsed: q.parsed, cuisine: q.cuisine, budget: q.budget, budgetSet: q.budgetSet, occasion: q.occasion, party: state.party, tags: q.extraTags, applied: q.applied };
 }
 const hasCraving = (c) => !!c.parsed && (c.parsed.terms.length > 0 || c.parsed.spicy);
 
-// Restaurant list. Inputs are the restaurant model's inputs from the contract:
-// location pin, group budget, occasion and the group's dietary flags, plus the craving.
+// Restaurant list (MVP of the group restaurant recommender, slide "Group
+// Restaurant Recommender"): nearby places sorted by distance from the diner's
+// pin, and the strictest dietary flag in the group filters the list. No score.
+// Budget and occasion join the ranking in Phase 2. The search's cuisine and
+// craving narrow which places are shown.
 function nearby({ useQuery = true, crit = committedQuery() } = {}) {
-  const tierLen = (t) => (t || "$$").length;
   const user = groupUser(useQuery ? crit.tags : []);
+  const strict = Models.tagsOf(user).length > 0;
   let list = state.restaurants
     .filter((r) => BEACHHEAD.includes(r.neighborhood))
     .map((r) => ({ ...r, distance_km: r.latitude ? km(PIN, { lat: r.latitude, lng: r.longitude }) : null, safe: safeDishCount(r, user) }));
+  if (strict) list = list.filter((r) => r.safe > 0);
   if (useQuery && crit.applied) {
     const text = (crit.text || "").trim().toLowerCase();
     list = list.filter((r) => {
       if (text.length > 3 && r.name.toLowerCase().includes(text)) return true; // searched a restaurant by name
       if (crit.cuisine && r.cuisine_type !== crit.cuisine) return false;
-      if (tierLen(r.price_tier) > crit.budget.length) return false;
       if (hasCraving(crit)) return dishesAt(r, crit, user).length > 0;
       return true;
     });
   }
-  const byDistance = (a, b) => (a.distance_km ?? 99) - (b.distance_km ?? 99);
-  const sorts = {
-    quick: (a, b) => (a.avg_prep_time_minutes ?? 99) - (b.avg_prep_time_minutes ?? 99) || byDistance(a, b),
-    talk: byDistance,
-    celebrate: (a, b) => tierLen(b.price_tier) - tierLen(a.price_tier) || byDistance(a, b),
-  };
-  return list.sort(useQuery && crit.applied ? sorts[crit.occasion] || byDistance : byDistance);
+  return list.sort((a, b) => (a.distance_km ?? 99) - (b.distance_km ?? 99));
 }
 
 // Dishes at one restaurant that match the craving and are safe for the table.
@@ -190,8 +208,11 @@ function dishResults(crit = committedQuery()) {
     for (const i of items) {
       if (!Query.dishMatches(i, crit.parsed)) continue;
       if (i.allergens.some((a) => ex.has(a))) { hidden++; continue; }
+      if (crit.budgetSet && price(i) > (BUDGET_CAP[crit.budget] ?? Infinity)) continue;
       const fit = Models.dietFit(i, user, allowedFor(items, user));
-      const match = Models.dishScore(i, user, r, fit).overall;
+      const score = withFeedback(i.item_id, Models.dishScore(i, user, r, fit), fit);
+      if (score.dont) continue;
+      const match = score.overall;
       const key = `${r.restaurant_id}|${i.name}`;
       if (!best.has(key) || best.get(key).match < match) best.set(key, { item: i, r, fit, match });
     }
@@ -206,7 +227,6 @@ function tableSummary(c) {
     c.cuisine,
     tags.length ? tags.join(", ") : "no restrictions",
     c.budget,
-    OCCASION_LABEL[c.occasion]?.toLowerCase(),
   ].filter(Boolean).join(" · ");
 }
 function findLabel(c) {
@@ -226,7 +246,7 @@ function understoodChips(p) {
 }
 
 async function openRestaurant(r) {
-  Object.assign(state, { restaurant: r, cart: [], order: null, error: "", showWhy: new Set(), showCustomize: new Set() });
+  Object.assign(state, { restaurant: r, cart: [], order: null, error: "", showWhy: new Set(), showCustomize: new Set(), checkedIn: false, openedThisVisit: new Set() });
   const [tables, menu] = await Promise.all([Data.tables(r.restaurant_id), Data.menu(r.restaurant_id, state.user)]);
   state.tables = tables;
   state.menu = menu;
@@ -238,12 +258,13 @@ function scoredMenu() {
   const ex = Models.excludedAllergens(user);
   const allowed = new Set(state.menu.items.filter((i) => state.menu.allowed.has(i.item_id) && !i.allergens.some((a) => ex.has(a))).map((i) => i.item_id));
   return state.menu.items.map((item) => {
-    const fit = Models.dietFit(item, user, allowed);
-    const score = Models.dishScore(item, user, state.restaurant, fit);
-    return { ...item, fit, match: score.overall, rank: score.rank, parts: score.parts };
+    const base = Models.dietFit(item, user, allowed);
+    const score = withFeedback(item.item_id, Models.dishScore(item, user, state.restaurant, base), base);
+    const fit = score.dont ? { level: "skipped", reason: "Not suggested, your choice" } : base;
+    return { ...item, fit, match: score.overall, rank: score.rank, parts: score.parts, notes: score.notes };
   });
 }
-function etaPreview(cart) { return Models.toContract(Models.prepEta(cart, 0)); }
+function etaPreview(cart) { return Models.toContract(Models.prepEta(cart, 0, state.restaurant)); }
 
 // ================================================================ SCREENS
 const SCREENS = {};
@@ -274,8 +295,6 @@ SCREENS.search = {
           <div class="slots">${chip(!c.cuisine, 'data-cuisine=""', "Anything")}${cuisines.map((x) => chip(c.cuisine === x, `data-cuisine="${esc(x)}"`, x)).join("")}</div>
           <p class="cat-title">Budget per person</p>
           <div class="slots">${["$", "$$", "$$$"].map((b) => chip(c.budget === b, `data-budget="${b}"`, b)).join("")}</div>
-          <p class="cat-title">Occasion</p>
-          <div class="slots">${OCCASIONS.map(([k, l]) => chip(c.occasion === k, `data-occasion="${k}"`, l)).join("")}</div>
           <p class="cat-title">Dietary</p>
           <div class="filter-banner ${tags.length ? "" : "muted"}">${icons.info}<span>${tags.length ? `${esc(tags.join(", "))} · strictest in your group, applied to every menu` : "No restrictions on your profile"}</span></div>`
           : `<p class="small" style="margin-top:8px">Set once from your profile. Mention anything new in the search, like “one's vegan”.</p>`}
@@ -302,10 +321,9 @@ SCREENS.search = {
     v.querySelectorAll("[data-party]").forEach((b) => b.addEventListener("click", () => set("party", (p) => Math.min(8, Math.max(1, p + Number(b.dataset.party))))));
     v.querySelectorAll("[data-cuisine]").forEach((b) => b.addEventListener("click", () => set("cuisine", b.dataset.cuisine || null)));
     v.querySelectorAll("[data-budget]").forEach((b) => b.addEventListener("click", () => set("budget", b.dataset.budget)));
-    v.querySelectorAll("[data-occasion]").forEach((b) => b.addEventListener("click", () => set("occasion", b.dataset.occasion)));
     v.querySelector("[data-find]").addEventListener("click", () => {
       const c = effectiveQuery();
-      Object.assign(q, { cuisine: c.cuisine, budget: c.budget, occasion: c.occasion, extraTags: c.tags, parsed: c.parsed, applied: true, editing: false });
+      Object.assign(q, { cuisine: c.cuisine, budget: c.budget, budgetSet: c.budgetSet, occasion: c.occasion, extraTags: c.tags, parsed: c.parsed, applied: true, editing: false });
       state.party = c.party;
       const empty = hasCraving(c) ? dishResults(committedQuery()).dishes.length === 0 : nearby().length === 0;
       q.relaxed = empty;
@@ -324,7 +342,6 @@ SCREENS.home = {
     const craving = q.applied && hasCraving(c);
     const { dishes, hidden } = craving ? dishResults(c) : { dishes: [], hidden: 0 };
     const places = nearby();
-    const sortNote = { quick: "fastest kitchens first", talk: "closest first", celebrate: "special-occasion spots first" }[q.occasion];
     const cravingText = craving ? [c.parsed.spicy ? "spicy" : null, ...c.parsed.terms].filter(Boolean).join(" ") : "";
     return `
       ${topbar("BookMe")}
@@ -336,12 +353,12 @@ SCREENS.home = {
           <h3 class="h2">Dishes for “${esc(cravingText)}”</h3>
           ${dishes.map((d) => `
             <button class="card dish-row" data-dish="${d.r.restaurant_id}:${d.item.item_id}">
-              ${photo(BOOKME_IMAGES.dish(d.item), "", "dthumb")}
+              ${photo(BOOKME_IMAGES.dish(d.item, d.r.cuisine_type), "", "dthumb")}
               <span class="dr-main"><b>${esc(d.item.name)}</b><span>${esc(d.r.name)} · <span class="num">${d.r.distance_km?.toFixed(1)} km</span> · <span class="num">${money(price(d.item))}</span></span>
               ${d.fit.level === "caution" ? `<span class="pill warn" style="margin-top:4px">${esc(d.fit.reason)}</span>` : ""}</span>
               <span class="pill accent num">${d.match}%</span>
             </button>`).join("")}
-          ${hidden ? `<p class="small" style="margin-top:10px">${hidden} more dish${hidden === 1 ? "" : "es"} hidden for your table's ${esc(tags.filter((t) => t.endsWith("-free")).join(", ") || "dietary")} profile.</p>` : ""}
+          ${hidden ? `<p class="small" style="margin-top:10px">${hidden} more dish${hidden === 1 ? "" : "es"} score 0 for your table's ${esc(tags.filter((t) => t.endsWith("-free")).join(", ") || "dietary")} profile.</p>` : ""}
           <h3 class="h2">Restaurants that have it</h3>` : ""}
         ${places.map((r) => `
           <button class="card r-card" data-rid="${r.restaurant_id}">
@@ -358,7 +375,7 @@ SCREENS.home = {
             </div>
             <span class="chev">${icons.chev}</span>
           </button>`).join("")}
-        <p class="small" style="margin-top:16px">${q.applied ? `Sorted ${sortNote}. ` : ""}Distance from the ${esc(PIN.label)} Blue Line stop.</p>
+        <p class="small" style="margin-top:16px">Closest first, from your pin at the ${esc(PIN.label)} Blue Line stop.${tags.length ? " Places with nothing safe for your table are left out." : ""}</p>
       </div>`;
   },
   bind(v) {
@@ -429,8 +446,24 @@ SCREENS.restaurant = {
         <h2 class="display" style="margin:18px 0 4px">${esc(r.name)}</h2>
         <div class="addr-row">${icons.pin}<span>${esc(r.address_line1 || r.neighborhood)}, Chicago</span></div>
         <b style="font-size:14px">${esc(r.cuisine_type)} · ${esc(r.price_tier || "")}${r.avg_rating ? ` · ★ ${r.avg_rating.toFixed(1)}${r.total_reviews ? ` (${r.total_reviews})` : ""}` : ""}</b>
+        ${r.health_inspection_score ? `<div class="health-badge">${icons.tick} Health inspection: ${r.health_inspection_score.toFixed(1)}/100</div>` : ""}
         ${r.description ? `<p class="r-blurb">${esc(r.description)}</p>` : ""}
         ${state.cart.length ? `<div class="filter-banner" style="margin-top:14px">${icons.tick}<span>${esc(state.cart.map((c) => c.name).join(", "))} is in your order. Reserve, then add anything else from the menu.</span></div>` : ""}
+
+        ${(() => {
+          const top = [...(state.menu?.items || [])].sort((a, b) => (b.popularity_score || 0) - (a.popularity_score || 0)).slice(0, 3);
+          if (!top.length) return "";
+          return `
+            <h3 class="h2">Popular here</h3>
+            <div class="popular-strip">
+              ${top.map((d) => `
+                <button class="popular-card" data-popular-jump>
+                  ${photo(BOOKME_IMAGES.dish(d, r.cuisine_type), "", "popular-photo")}
+                  <span class="popular-name">${esc(d.name)}</span>
+                  <span class="popular-price num">${money(d.discount_price || d.price)}</span>
+                </button>`).join("")}
+            </div>`;
+        })()}
 
         <div class="card seats-card">
           <div class="seats-head"><span class="seats-title">Live seats</span><span class="live-dot"></span></div>
@@ -457,6 +490,7 @@ SCREENS.restaurant = {
       <div class="footer"><button class="btn" data-reserve>${fits ? `Reserve for ${state.party}` : `Request a table for ${state.party}`}</button></div>`;
   },
   bind(v) {
+    v.querySelectorAll("[data-popular-jump]").forEach((b) => b.addEventListener("click", () => go("menu")));
     v.querySelectorAll("[data-slot]").forEach((b) => b.addEventListener("click", () => { state.slot = b.dataset.slot; render(false, true); }));
     v.querySelectorAll("[data-party]").forEach((b) => b.addEventListener("click", () => { state.party = Math.min(8, Math.max(1, state.party + Number(b.dataset.party))); render(false, true); }));
     v.querySelectorAll("[data-zone]").forEach((b) => b.addEventListener("click", () => { state.seatZone = b.dataset.zone || null; render(false, true); }));
@@ -465,6 +499,7 @@ SCREENS.restaurant = {
       const table = bestTable(state.tables, state.party, state.seatZone);
       const fits = !!table && table.capacity >= state.party;
       const seatingNote = table ? ` You're seated ${table.seating_feature ? esc(table.seating_feature).toLowerCase() : esc(ZONE_LABEL[table.location_zone] || table.location_zone).toLowerCase()}.` : "";
+      state.checkedIn = false;
       v.append($(`
 
         <div class="sheet-backdrop" data-close></div>
@@ -473,10 +508,28 @@ SCREENS.restaurant = {
           <div class="confirm-icon">${icons.check}</div>
           <h3 class="display" style="font-size:23px;margin-bottom:6px">${fits ? `Table for ${state.party} at ${state.slot} — confirmed` : `Request sent: ${state.party} at ${state.slot}`}</h3>
           <p class="sub">${fits ? `${esc(state.restaurant.name)} holds it 15 minutes past your time.${seatingNote}` : `No table for ${state.party} is open right now, so ${esc(state.restaurant.name)} confirms within a few minutes.`}${tags.length ? ` Your ${esc(tags.join(", "))} profile is already on the ticket.` : ""}</p>
-          <div style="display:grid;gap:8px;margin-top:18px"><button class="btn" data-menu>View menu</button><button class="btn secondary" data-close>Done</button></div>
+          <div style="display:grid;gap:8px;margin-top:14px"><button class="btn" data-menu-early>View menu</button></div>
+          <div class="geo-box" data-geo-box>
+            <p class="geo-hint">${icons.pin} Browsing doesn't require it — but check in when you arrive so the kitchen knows to start.</p>
+            <button class="btn secondary" data-checkin>Check in</button>
+          </div>
+          <div style="display:grid;gap:8px;margin-top:10px"><button class="btn secondary" data-close>Done for now</button></div>
         </div>`));
       v.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => v.querySelectorAll(".sheet,.sheet-backdrop").forEach((e) => e.remove())));
-      v.querySelector("[data-menu]").addEventListener("click", () => go("menu"));
+      v.querySelector("[data-menu-early]").addEventListener("click", () => go("menu"));
+
+      v.querySelector("[data-checkin]").addEventListener("click", (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = "Checking you in…";
+        setTimeout(() => {
+          state.checkedIn = true;
+          const box = v.querySelector("[data-geo-box]");
+          if (box) {
+            box.innerHTML = `<p class="geo-confirmed">${icons.check} You're checked in — the kitchen can fire your order now.</p>`;
+          }
+        }, 1100);
+      });
     });
   },
 };
@@ -489,29 +542,34 @@ SCREENS.menu = {
     const blocked = dishes.filter((d) => d.fit.level === "blocked").length;
     const cats = [...new Set([...CATEGORY_ORDER, ...dishes.map((d) => d.category)])].filter((c) => dishes.some((d) => d.category === c));
     const qty = Object.fromEntries(state.cart.map((c) => [c.item_id, c.quantity]));
-    const rank = { ok: 0, caution: 1, blocked: 2 };
+    const rank = { ok: 0, caution: 1, skipped: 2, blocked: 3 };
+    const grey = (d) => d.fit.level === "blocked" || d.fit.level === "skipped";
+    const dietLine = (d) => d.fit.level === "blocked" ? ["Dietary check", `${d.fit.reason} · scores 0`]
+      : d.fit.level === "caution" ? ["Dietary check", d.fit.reason]
+      : tags.length ? ["Dietary check", `Safe for ${tags.join(", ")}`] : null;
     const PARTS = [["preference", "Taste"], ["dietary", "Dietary"], ["budget", "Budget"], ["nutrition", "Nutrition"], ["quality", "Quality"], ["speed", "Speed"]];
     return `
       ${topbar()}
       <div class="scroll">
         <h2 class="display" style="margin-top:18px">Menu for your table</h2>
         ${tags.length
-          ? `<div class="filter-banner">${icons.info}<span>Filtered for your group's ${esc(tags.join(", "))} profile${blocked ? ` · ${blocked} dish${blocked === 1 ? "" : "es"} hidden` : ""}</span></div>`
+          ? `<div class="filter-banner">${icons.info}<span>Filtered for your group's ${esc(tags.join(", "))} profile${blocked ? ` · ${blocked} dish${blocked === 1 ? "" : "es"} greyed out` : ""}</span></div>`
           : `<div class="filter-banner muted">${icons.info}<span>No dietary restrictions on file. Add them once and every menu filters itself.</span></div>`}
+        ${cats.length > 1 ? `<div class="cat-nav">${cats.map((cat) => `<button class="cat-nav-btn" data-cat-jump="${esc(catSlug(cat))}">${esc(cat)}</button>`).join("")}</div>` : ""}
         ${cats.map((cat) => `
-          <p class="cat-title">${esc(cat)}</p>
+          <p class="cat-title" id="cat-${esc(catSlug(cat))}">${esc(cat)}</p>
           ${dishes.filter((d) => d.category === cat).sort((a, b) => rank[a.fit.level] - rank[b.fit.level] || b.match - a.match).map((d) => `
-            <div class="card dish-card ${d.fit.level === "blocked" ? "is-blocked" : ""}">
-              ${photo(BOOKME_IMAGES.dish(d), d.category, "dish-photo")}
+            <div class="card dish-card ${grey(d) ? "is-blocked" : ""}">
+              ${photo(BOOKME_IMAGES.dish(d, state.restaurant.cuisine_type), d.category, "dish-photo")}
               <div class="dish-body">
                 <div class="dish-head">
                   <p class="dish-name">${esc(d.name)}</p>
-                  ${d.fit.level === "blocked" ? `<span class="pill bad">${esc(d.fit.reason)}</span>` : `<span class="pill accent num">${d.match}% match</span>`}
+                  ${grey(d) ? `<button class="pill bad pill-btn" data-why="${d.item_id}" aria-label="See why this dish scores 0"><span class="num">0%</span> · ${esc(d.fit.level === "skipped" ? "not suggested" : d.fit.reason)}</button>` : d.parts ? `<button class="pill accent num pill-btn" data-why="${d.item_id}" aria-label="See why this dish scored ${d.match}%">${d.match}% match</button>` : `<span class="pill accent num">${d.match}% match</span>`}
                 </div>
                 <p class="dish-desc">${esc(d.description || "")}${d.fit.level === "caution" ? ` <span class="pill warn" style="margin-left:4px">${esc(d.fit.reason)}</span>` : ""}</p>
                 <div class="dish-foot">
                   <span class="price num">${money(price(d))}</span>
-                  ${d.fit.level === "blocked" ? `<span class="small">Hidden for your table</span>` : `
+                  ${d.fit.level === "blocked" ? `<span class="small">Not safe for your table</span>` : `
                   <span class="stepper">
                     <button data-dec="${d.item_id}" aria-label="Remove one ${esc(d.name)}" ${qty[d.item_id] ? "" : "disabled style='opacity:.35'"}>−</button>
                     <span class="num">${qty[d.item_id] || 0}</span>
@@ -524,9 +582,12 @@ SCREENS.menu = {
                     const selected = cartLine?.selectedMods || [];
                     return `<button class="why-btn customize-btn" data-customize="${d.item_id}">${state.showCustomize.has(d.item_id) ? "Hide options" : `Customize${selected.length ? ` (${selected.length})` : ""}`}</button>`;
                   })() : "<span></span>"}
-                  ${d.parts ? `<button class="why-btn" data-why="${d.item_id}">${state.showWhy.has(d.item_id) ? "Hide" : "Why this score"}</button>` : ""}
+                  <button class="why-btn" data-why="${d.item_id}">${state.showWhy.has(d.item_id) ? "Hide" : "Why this score"}</button>
                 </div>
-                ${d.parts && state.showWhy.has(d.item_id) ? `<div class="score-grid">${PARTS.map(([k, l]) => `<div class="score-row"><span>${l}</span><div class="bar ${d.parts[k] < 70 ? "low" : ""}"><span style="width:${d.parts[k]}%"></span></div><b class="num">${d.parts[k]}</b></div>`).join("")}</div>` : ""}
+                ${state.showWhy.has(d.item_id) ? `<div class="score-grid">
+                  ${d.parts && !grey(d) ? PARTS.map(([k, l]) => `<div class="score-row"><span>${l}</span><div class="bar ${d.parts[k] < 70 ? "low" : ""}"><span style="width:${d.parts[k]}%"></span></div><b class="num">${d.parts[k]}</b></div>`).join("") : ""}
+                  ${[dietLine(d), ...(d.notes || [])].filter(Boolean).map(([k, val]) => `<div class="why-row"><span>${esc(k)}</span><b class="num">${esc(val)}</b></div>`).join("")}
+                </div>` : ""}
                 ${d.modifiers && d.modifiers.length && state.showCustomize.has(d.item_id) ? (() => {
                   const cartLine = state.cart.find((c) => c.item_id === d.item_id);
                   const selected = cartLine?.selectedMods || [];
@@ -544,6 +605,10 @@ SCREENS.menu = {
       ${state.cart.length ? `<button class="cartbar" data-review><span>${cartCount()} item${cartCount() === 1 ? "" : "s"} · <span class="num">${money(cartSubtotal())}</span></span><span>Review order ›</span></button>` : ""}`;
   },
   bind(v) {
+    v.querySelectorAll("[data-cat-jump]").forEach((b) => b.addEventListener("click", () => {
+      const target = v.querySelector(`#cat-${b.dataset.catJump}`);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
     const change = (id, delta) => {
       const i = state.cart.findIndex((c) => c.item_id === id);
       if (i >= 0) { state.cart[i].quantity += delta; if (state.cart[i].quantity <= 0) state.cart.splice(i, 1); }
@@ -565,12 +630,13 @@ SCREENS.menu = {
     v.querySelectorAll("[data-dec]").forEach((b) => b.addEventListener("click", () => change(Number(b.dataset.dec), -1)));
     v.querySelectorAll("[data-why]").forEach((b) => b.addEventListener("click", () => {
       const id = Number(b.dataset.why);
-      state.showWhy.has(id) ? state.showWhy.delete(id) : state.showWhy.add(id);
+      state.showWhy.has(id) ? state.showWhy.delete(id) : (state.showWhy.add(id), state.showCustomize.delete(id));
+      state.openedThisVisit.add(id);
       render(false, true);
     }));
     v.querySelectorAll("[data-customize]").forEach((b) => b.addEventListener("click", () => {
       const id = Number(b.dataset.customize);
-      state.showCustomize.has(id) ? state.showCustomize.delete(id) : state.showCustomize.add(id);
+      state.showCustomize.has(id) ? state.showCustomize.delete(id) : (state.showCustomize.add(id), state.showWhy.delete(id));
       render(false, true);
     }));
     v.querySelectorAll("[data-mod]").forEach((cb) => cb.addEventListener("change", () => {
@@ -584,8 +650,24 @@ SCREENS.menu = {
 };
 
 // ---------- Order + ETA ----------
+// The order is written by POST /orders; the wait shown is the prep-time rule,
+// fed the backend's live open-ticket count.
+function withAppEta(o) {
+  const bd = o.eta?.breakdown || {};
+  const open = bd.kitchen_load_orders_last_30min ?? bd.open_tickets ?? 0;
+  return { ...o, appEta: Models.prepEta(state.cart, open, state.restaurant) };
+}
+function noteOpenedNotAdded() {
+  const inCart = new Set(state.cart.map((c) => c.item_id));
+  for (const id of state.openedThisVisit) {
+    if (inCart.has(id)) continue;
+    const fb = (state.feedback[fbKey(id)] ||= {});
+    fb.opened = Math.min(3, (fb.opened || 0) + 1);
+  }
+  state.openedThisVisit = new Set();
+}
 function fasterSwap() {
-  const safe = scoredMenu().filter((d) => d.fit.level !== "blocked");
+  const safe = scoredMenu().filter((d) => d.fit.level === "ok" || d.fit.level === "caution");
   const slowest = [...state.cart].sort((a, b) => (b.prep_time_minutes || 0) - (a.prep_time_minutes || 0))[0];
   if (!slowest) return null;
   const inCart = new Set(state.cart.map((c) => c.item_id));
@@ -610,9 +692,8 @@ SCREENS.order = {
     const swap = !o && prev.over_25_min ? fasterSwap() : null;
     let est;
     if (o) {
-      const c = Models.toContract(o.eta), b = o.eta.breakdown;
-      const slow = [...b.base_minutes_per_item].sort((x, y) => y.base_minutes - x.base_minutes)[0];
-      const slowName = state.cart.find((x) => x.item_id === slow?.item_id)?.name;
+      const e = o.appEta, c = Models.toContract(e), b = e.breakdown;
+      const n = b.base_minutes_per_item.length;
       est = `
         <div class="est-card">
           <span class="label">Sent to the kitchen${o.order_id ? ` · order #${o.order_id}` : ""}</span>
@@ -620,10 +701,11 @@ SCREENS.order = {
           <p class="est-title">Ready in about ${c.wait_minutes} minutes</p>
           <p class="est-sub">${c.over_25_min ? "Longer than usual — your server knows." : "We'll nudge you when it's on its way."}</p>
           <div class="why">
-            <div class="why-row"><span>Slowest dish</span><b>${esc(slowName || "—")} · ${slow?.base_minutes ?? "—"} min</b></div>
-            <div class="why-row"><span>Cooked in parallel</span><b>${b.base_minutes_per_item.length} dishes · ×${b.complexity_factor}</b></div>
-            <div class="why-row"><span>Kitchen load, last 30 min</span><b>${b.kitchen_load_orders_last_30min} order${b.kitchen_load_orders_last_30min === 1 ? "" : "s"} · +${b.kitchen_load_minutes_added} min</b></div>
-            <div class="why-row"><span>Model</span><b>Prep-time v0.1${Data.live ? " · live" : " · offline"}</b></div>
+            <div class="why-row"><span>Dish baseline</span><b>${n} dish${n === 1 ? "" : "es"} together · ${Math.round(b.baseline_minutes)} min</b></div>
+            <div class="why-row"><span>Open tickets</span><b>${b.open_tickets} of ${b.kitchen_capacity} the kitchen handles · +${Math.round(b.load_minutes)} min</b></div>
+            <div class="why-row"><span>Time of day</span><b>${esc(b.time_of_day)} · +${Math.round(b.time_of_day_minutes)} min</b></div>
+            <div class="why-row"><span>Cold start</span><b>${b.cold_start_items ? `Category average for ${b.cold_start_items} dish${b.cold_start_items === 1 ? "" : "es"}` : "Restaurant's own dish times"}</b></div>
+            <div class="why-row"><span>Model</span><b>Prep-time rule${Data.live ? " · live" : " · offline"}</b></div>
           </div>
         </div>`;
     } else {
@@ -654,7 +736,7 @@ SCREENS.order = {
     v.querySelector("[data-swap]")?.addEventListener("click", () => { const s = fasterSwap(); if (s) { state.cart = s.swapped; render(false, true); } });
     v.querySelector("[data-send]")?.addEventListener("click", async () => {
       state.sending = true; state.error = ""; render(false, true);
-      try { state.order = await Data.placeOrder(state.user, state.restaurant.restaurant_id, state.cart); }
+      try { state.order = withAppEta(await Data.placeOrder(state.user, state.restaurant.restaurant_id, state.cart)); noteOpenedNotAdded(); }
       catch (e) { state.error = e.message; }
       state.sending = false; render(false, true);
     });
@@ -756,7 +838,16 @@ SCREENS.review = {
     const keep = () => { const t = v.querySelector("[data-text]"); if (t) state.review.text = t.value; };
     v.querySelectorAll("[data-star]").forEach((b) => b.addEventListener("click", () => { state.review.stars = Number(b.dataset.star); keep(); render(false, true); }));
     v.querySelectorAll("[data-skip]").forEach((b) => b.addEventListener("click", () => { const id = Number(b.dataset.skip); state.review.skip.has(id) ? state.review.skip.delete(id) : state.review.skip.add(id); keep(); render(false, true); }));
-    v.querySelector("[data-submit]").addEventListener("click", () => { keep(); go("thanks"); });
+    v.querySelector("[data-submit]").addEventListener("click", () => {
+      keep();
+      const rv = state.review;
+      for (const c of state.cart) {
+        const fb = (state.feedback[fbKey(c.item_id)] ||= {});
+        fb.stars = rv.stars; fb.rating = (rv.stars - 3) * 3;
+        fb.dont = rv.skip.has(c.item_id);
+      }
+      go("thanks");
+    });
   },
 };
 SCREENS.thanks = {
@@ -766,7 +857,7 @@ SCREENS.thanks = {
       <div class="scroll center" style="display:grid;align-content:center">
         <div class="big-check">${icons.fork}</div>
         <h2 class="display" style="font-size:28px;margin-bottom:8px">Thanks, ${esc(firstName(state.user))}.</h2>
-        <p class="sub">Your review is live. Only verified diners can post.</p>
+        <p class="sub">Your review is live. Only verified diners can post. Next visit, your match scores reflect it.</p>
         <button class="btn secondary" data-home style="margin-top:22px">Back to tonight</button>
       </div>`;
   },
@@ -810,18 +901,12 @@ SCREENS.owner = {
     const tabs = [["tonight", "Tonight", icons.cal], ["forecast", "Forecast", icons.chart], ["reorder", "Reorder", icons.box]];
     return `
       <header class="ops-top">
-        <button class="icon-btn" data-back aria-label="Back" disabled>${icons.back}</button>
-        <h1>${esc(r?.name || "")} · Ops</h1>
-        <span class="ops-select"><button class="icon-btn" aria-hidden="true">${icons.chev}</button><select data-orest aria-label="Restaurant">${state.restaurants.map((x) => `<option value="${x.restaurant_id}" ${x.restaurant_id === rid ? "selected" : ""}>${esc(x.name)} · ${esc(x.neighborhood)}</option>`).join("")}</select></span>
+        <h1>${esc(r?.name || "")}</h1>
       </header>
       <div class="otabs">${tabs.map(([k, l, i]) => `<button data-otab="${k}" class="${state.owner.tab === k ? "is-on" : ""}">${i}${l}</button>`).join("")}</div>
       <div class="scroll">${data ? OWNER_TABS[state.owner.tab](data, r) : `<p class="sub" style="padding:20px 0">Loading forecast…</p>`}</div>`;
   },
   bind(v) {
-    v.querySelector("[data-orest]").addEventListener("change", async (e) => {
-      state.owner.restaurantId = Number(e.target.value); render();
-      await loadOwner(state.owner.restaurantId); render();
-    });
     v.querySelectorAll("[data-otab]").forEach((b) => b.addEventListener("click", () => { state.owner.tab = b.dataset.otab; render(); }));
     v.querySelectorAll("[data-block]").forEach((b) => b.addEventListener("click", () => { state.owner.block = b.dataset.block; render(false, true); }));
   },
@@ -845,7 +930,7 @@ const OWNER_TABS = {
       <div class="hero-card">
         <span class="k">${fmtDate(today, { weekday: "long" })} ${BLOCK_LABEL[dinner.shift_block].toLowerCase()}</span>
         <div class="big">${dinner.predicted_covers} covers expected <span class="arrow">→</span><br>staff ${dinner.recommended_staff_count}</div>
-        <div class="rule">${dinner.predicted_covers} covers ÷ ~${cps.toFixed(0)} covers per staff member ≈ ${dinner.recommended_staff_count} on the floor · confidence ${Math.round(dinner.confidence_score * 100)}%
+        <div class="rule">${dinner.predicted_covers} covers ÷ ~${cps.toFixed(0)} covers per staff member ≈ ${dinner.recommended_staff_count} on the floor · confidence ${Math.round(dinner.confidence_score * 100)}% · prep-time model, summed across the shift
           <b>${diff > 0 ? `Your usual ${BLOCK_LABEL[dinner.shift_block].toLowerCase()} schedule runs ${flat} — saving ~${diff} shift${diff === 1 ? "" : "s"}.` : diff < 0 ? `Your usual schedule runs ${flat} — add ${-diff} to avoid a short floor.` : `Matches your usual ${BLOCK_LABEL[dinner.shift_block].toLowerCase()} schedule.`}</b></div>
       </div>
       <div class="kpis">
@@ -888,7 +973,7 @@ const OWNER_TABS = {
         <div class="kpi"><span>Short</span><b class="num">${gaps.under}</b></div>
         <div class="kpi"><span>Shifts</span><b class="num">${gaps.total}</b></div>
       </div>
-      <p class="illustrative">Forecast v0.1 on synthetic data, ${acc.n} shifts scored. Error is the average gap between forecast and actual covers per shift.</p>
+      <p class="illustrative">Prep-time model v0.1, shift totals on synthetic data, ${acc.n} shifts scored. Error is the average gap between forecast and actual covers per shift.</p>
       <button class="linkbtn" data-otab="reorder">Review reorder plan <span>${icons.chev}</span></button>`;
   },
   reorder({ rows, dates }, r) {
@@ -941,7 +1026,7 @@ async function ensureRestaurant() { if (!state.restaurant) await openRestaurant(
 async function ensureCart() {
   await ensureRestaurant();
   if (!state.cart.length) {
-    const ok = scoredMenu().filter((d) => d.fit.level !== "blocked").sort((a, b) => b.match - a.match).slice(0, 2);
+    const ok = scoredMenu().filter((d) => d.fit.level === "ok" || d.fit.level === "caution").sort((a, b) => b.match - a.match).slice(0, 2);
     state.cart = ok.map((d) => ({ ...state.menu.items.find((m) => m.item_id === d.item_id), quantity: 1 }));
   }
 }
@@ -951,7 +1036,7 @@ async function jump(name) {
   if (["order", "pay", "review"].includes(name)) await ensureCart();
   if (name === "order") state.order = null;
   if (["pay", "review"].includes(name) && !state.order) {
-    try { state.order = await Data.placeOrder(state.user, state.restaurant.restaurant_id, state.cart); } catch (e) { state.error = e.message; }
+    try { state.order = withAppEta(await Data.placeOrder(state.user, state.restaurant.restaurant_id, state.cart)); } catch (e) { state.error = e.message; }
     state.assign = Object.fromEntries(state.cart.map((c, i) => [c.item_id, i % people().length]));
   }
   if (name === "home") state.query.applied = true;
@@ -969,8 +1054,8 @@ async function setMode(mode) {
   } else go("search", { replace: true });
 }
 function resetDiner() {
-  Object.assign(state, { restaurant: null, tables: [], menu: null, cart: [], order: null, error: "", showWhy: new Set(), showCustomize: new Set(), party: 3, slot: "7:30", seatZone: null, tipPct: 18, split: "even", assign: {}, review: { stars: 0, text: "", skip: new Set() }, history: [], current: null, mode: "diner" });
-  state.query = { text: "", cuisine: null, budget: tierFor(state.user), occasion: "talk", applied: false, relaxed: false, extraTags: [], parsed: null, editing: false, manual: {} };
+  Object.assign(state, { restaurant: null, tables: [], menu: null, cart: [], order: null, error: "", showWhy: new Set(), showCustomize: new Set(), checkedIn: false, openedThisVisit: new Set(), party: 3, slot: "7:30", seatZone: null, tipPct: 18, split: "even", assign: {}, review: { stars: 0, text: "", skip: new Set() }, history: [], current: null, mode: "diner" });
+  state.query = { text: "", cuisine: null, budget: tierFor(state.user), budgetSet: false, occasion: "talk", applied: false, relaxed: false, extraTags: [], parsed: null, editing: false, manual: {} };
   go("search", { replace: true });
 }
 function pickFriends() {
@@ -981,12 +1066,18 @@ function pickFriends() {
 function initDemoPanel() {
   demo.toggle.addEventListener("click", () => { const open = demo.panel.hidden; demo.panel.hidden = !open; demo.toggle.setAttribute("aria-expanded", String(open)); });
   document.querySelectorAll(".demo-seg button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
-  demo.diner.innerHTML = state.users.map((u) => `<option value="${u.user_id}">${esc(u.full_name)} · ${u.dietary_tags ? esc(u.dietary_tags) : "no restrictions"}</option>`).join("");
+  // Two groups so a diner with no restrictions is one click away.
+  const opt = (u) => `<option value="${u.user_id}">${esc(u.full_name)} · ${u.dietary_tags ? esc(u.dietary_tags) : "no restrictions"}</option>`;
+  const withTags = state.users.filter((u) => u.dietary_tags).slice(0, 20);
+  const noTags = state.users.filter((u) => !u.dietary_tags).slice(0, 20);
+  if (!withTags.concat(noTags).includes(state.user)) (state.user.dietary_tags ? withTags : noTags).unshift(state.user);
+  demo.diner.innerHTML = `<optgroup label="With dietary needs">${withTags.map(opt).join("")}</optgroup><optgroup label="No restrictions">${noTags.map(opt).join("")}</optgroup>`;
   demo.diner.addEventListener("change", async () => {
     state.user = state.users.find((u) => u.user_id === Number(demo.diner.value));
+    if (!state.query.manual.budget) state.query.budget = tierFor(state.user);
     pickFriends();
     if (state.restaurant) state.menu = await Data.menu(state.restaurant.restaurant_id, state.user);
-    state.cart = []; state.order = null; state.showWhy = new Set();
+    state.cart = []; state.order = null; state.showWhy = new Set(); state.openedThisVisit = new Set();
     render();
   });
   demo.restaurant.innerHTML = state.restaurants.map((r) => `<option value="${r.restaurant_id}">${esc(r.name)} · ${esc(r.neighborhood)}</option>`).join("");
