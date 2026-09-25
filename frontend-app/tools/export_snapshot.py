@@ -32,7 +32,7 @@ def main():
     restaurants = rows(conn, """
         SELECT restaurant_id, name, description, cuisine_type, price_tier, address_line1,
                neighborhood, city, latitude, longitude, seats_total, avg_prep_time_minutes,
-               avg_rating, total_reviews
+               avg_rating, total_reviews, health_inspection_score
         FROM restaurants WHERE is_active = 1 ORDER BY restaurant_id""")
 
     users = rows(conn, """
