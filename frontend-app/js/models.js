@@ -17,7 +17,9 @@ window.Models = (function () {
   // Same rule as GET /restaurants/{id}/menu: a "<x>-free" tag excludes items
   // carrying the "<x>" allergen.
   function excludedAllergens(user) {
-    return new Set(tagsOf(user).filter((t) => t.endsWith("-free")).map((t) => t.replace("-free", "")));
+    // Tag names are singular ("nut-free"), allergen names plural ("nuts").
+    const ALLERGEN_FOR = { nut: "nuts", egg: "eggs" };
+    return new Set(tagsOf(user).filter((t) => t.endsWith("-free")).map((t) => { const b = t.replace("-free", ""); return ALLERGEN_FOR[b] || b; }));
   }
 
   // Can this diner order this dish?

@@ -15,6 +15,9 @@ import os
 import random
 import sqlite3
 from datetime import datetime, timedelta, date, time
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "synthetic_data"))
+from dish_facts import DISH_FACTS  # real allergens / diet flags / spice per dish
 
 random.seed(42)
 
@@ -451,6 +454,11 @@ for r in restaurants:
                 "image_url": f"https://example.com/img/item{item_id}.jpg",
                 "created_at": (NOW - timedelta(days=random.randint(30, 300))).isoformat(),
             }
+            # Real diet flags and spice level (synthetic_data/dish_facts.py). The
+            # random draws above still run so the rest of the data is unchanged.
+            if dish_name in DISH_FACTS:
+                _, veg, vegan, gf, spice = DISH_FACTS[dish_name]
+                row.update(is_vegetarian=bool(veg), is_vegan=bool(vegan), is_gluten_free=bool(gf), spice_level=spice)
             menu_items.append(row)
             ilist.append(row)
             item_id += 1
@@ -458,10 +466,13 @@ for r in restaurants:
 TABLES["menu_items"] = menu_items
 
 menu_item_allergens = []
+allergen_id_by_name = {a["name"]: a["allergen_id"] for a in allergens}
 for mi in menu_items:
-    if random.random() < 0.5:
-        for a in random.sample(allergens, k=random.randint(1, 2)):
-            menu_item_allergens.append({"item_id": mi["item_id"], "allergen_id": a["allergen_id"]})
+    drawn = random.sample(allergens, k=random.randint(1, 2)) if random.random() < 0.5 else []
+    if mi["name"] in DISH_FACTS:  # real allergens; the draw above keeps the random sequence unchanged
+        drawn = [{"allergen_id": allergen_id_by_name[n]} for n in DISH_FACTS[mi["name"]][0]]
+    for a in drawn:
+        menu_item_allergens.append({"item_id": mi["item_id"], "allergen_id": a["allergen_id"]})
 TABLES["menu_item_allergens"] = menu_item_allergens
 
 item_modifiers = []

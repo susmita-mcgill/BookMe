@@ -241,7 +241,8 @@ def get_menu(restaurant_id: int, user_id: Optional[int] = None):
             for t in tag_rows:
                 name = t["name"]
                 if name.endswith("-free"):
-                    exclude_allergens.add(name.replace("-free", ""))
+                    base = name.replace("-free", "")
+                    exclude_allergens.add({"nut": "nuts", "egg": "eggs"}.get(base, base))  # tags are singular, allergens plural
 
         items = cur.execute(
             """SELECT mi.item_id, mi.name, mi.description, mi.price, mi.discount_price,

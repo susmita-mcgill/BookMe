@@ -543,10 +543,17 @@ SCREENS.menu = {
     const cats = [...new Set([...CATEGORY_ORDER, ...dishes.map((d) => d.category)])].filter((c) => dishes.some((d) => d.category === c));
     const qty = Object.fromEntries(state.cart.map((c) => [c.item_id, c.quantity]));
     const rank = { ok: 0, caution: 1, skipped: 2, blocked: 3 };
+    // Allergen tags ("-free") and vegan / vegetarian / gluten-free are checked
+    // against the menu data; halal and kosher aren't in it yet, so say so.
+    const dietChecked = (t) => {
+      const known = t.filter((x) => x.endsWith("-free") || ["vegan", "vegetarian"].includes(x));
+      const unknown = t.filter((x) => !known.includes(x));
+      return [known.length ? `Safe for ${known.join(", ")}` : "", unknown.length ? `${unknown.join(", ")}: ask your server` : ""].filter(Boolean).join(" · ");
+    };
     const grey = (d) => d.fit.level === "blocked" || d.fit.level === "skipped";
     const dietLine = (d) => d.fit.level === "blocked" ? ["Dietary check", `${d.fit.reason} · scores 0`]
       : d.fit.level === "caution" ? ["Dietary check", d.fit.reason]
-      : tags.length ? ["Dietary check", `Safe for ${tags.join(", ")}`] : null;
+      : tags.length ? ["Dietary check", dietChecked(tags)] : null;
     const PARTS = [["preference", "Taste"], ["dietary", "Dietary"], ["budget", "Budget"], ["nutrition", "Nutrition"], ["quality", "Quality"], ["speed", "Speed"]];
     return `
       ${topbar()}
@@ -577,7 +584,7 @@ SCREENS.menu = {
                   </span>`}
                 </div>
                 <div class="dish-toggles">
-                  ${d.modifiers && d.modifiers.length ? (() => {
+                  ${d.modifiers && d.modifiers.length && d.fit.level !== "blocked" ? (() => {
                     const cartLine = state.cart.find((c) => c.item_id === d.item_id);
                     const selected = cartLine?.selectedMods || [];
                     return `<button class="why-btn customize-btn" data-customize="${d.item_id}">${state.showCustomize.has(d.item_id) ? "Hide options" : `Customize${selected.length ? ` (${selected.length})` : ""}`}</button>`;
