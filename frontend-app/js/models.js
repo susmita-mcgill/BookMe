@@ -27,12 +27,21 @@ window.Models = (function () {
   //   caution  - no listed allergen, but the restaurant hasn't marked it as
   //              meeting the diner's diet (e.g. not flagged gluten-free)
   //   ok       - fits
+  // Vegan and vegetarian are diets, not allergens: the dish's own flag decides.
+  // Strictest at the table applies (deck: a dish that fails the strictest
+  // dietary flag scores 0 and is greyed with the reason).
+  function failsDiet(item, user) {
+    for (const t of tagsOf(user)) if ((t === "vegan" || t === "vegetarian") && !item[FLAG_FOR_TAG[t]]) return `Not ${t}`;
+    return null;
+  }
   function dietFit(item, user, allowed) {
     const tags = tagsOf(user);
     if (!allowed.has(item.item_id)) {
       const hit = item.allergens.find((a) => excludedAllergens(user).has(a));
       return { level: "blocked", reason: hit ? `Contains ${hit}` : "Doesn't fit your profile" };
     }
+    const diet = failsDiet(item, user);
+    if (diet) return { level: "blocked", reason: diet };
     for (const t of tags) {
       const flag = FLAG_FOR_TAG[t];
       if (flag && !item[flag]) return { level: "caution", reason: `Not confirmed ${t}` };
@@ -163,5 +172,5 @@ window.Models = (function () {
     return { over: over.length, under: under.length, extraStaffShifts, shortStaffShifts, total: rows.length };
   }
 
-  return { tagsOf, excludedAllergens, dietFit, dishMatch, dishScore, prepEta, kitchenCapacity, timeOfDay, toContract, mae, accuracy, coversPerStaff, staffingGaps };
+  return { tagsOf, excludedAllergens, failsDiet, dietFit, dishMatch, dishScore, prepEta, kitchenCapacity, timeOfDay, toContract, mae, accuracy, coversPerStaff, staffingGaps };
 })();

@@ -287,6 +287,15 @@ textarea { width: 100%; min-height: 92px; border: 1px solid var(--line-strong); 
 .hero-card .big .arrow { color: var(--accent); }
 .hero-card .rule { border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; font-size: 12.5px; color: #C9BDB4; line-height: 1.5; }
 .hero-card .rule b { color: #fff; display: block; margin-top: 4px; }
+.hero-card .act { display: inline-block; margin: 2px 0 10px; padding: 7px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; background: rgba(255,255,255,.08); color: #fff; }
+.hero-card .act b { font-weight: 800; }
+.hero-card .act.up b { color: #F6B38F; }
+.hero-card .act.down b { color: #A8DDBF; }
+.hero-card .why-line { font-size: 14px; color: #E9E1DA; margin: 0 0 12px; line-height: 1.4; }
+.hero-card details.rule summary { cursor: pointer; font-weight: 700; color: #F6B38F; list-style: none; }
+.hero-card details.rule summary::-webkit-details-marker { display: none; }
+.hero-card details.rule summary::after { content: " ›"; }
+.hero-card details[open].rule summary { margin-bottom: 6px; }
 .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 12px; }
 .kpi span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }

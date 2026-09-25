@@ -99,11 +99,12 @@ function topbar(title = "BookMe", { back = true } = {}) {
 // ---------------------------------------------------------------- derived
 const cartCount = () => state.cart.reduce((s, c) => s + c.quantity, 0);
 const cartSubtotal = () => state.cart.reduce((s, c) => s + price(c) * c.quantity, 0);
-const people = () => [{ name: firstName(state.user), me: true }, ...state.friends.map((f) => ({ name: firstName(f) }))];
+// Everyone at the table: you plus (party size - 1) friends, so the split matches "You + 3".
+const people = () => [{ name: firstName(state.user), me: true }, ...state.friends.slice(0, Math.max(0, state.party - 1)).map((f) => ({ name: firstName(f) }))];
 
 const OCCASIONS = [["quick", "Quick bite"], ["talk", "A night to talk"], ["celebrate", "Celebrating"]];
 const OCCASION_LABEL = Object.fromEntries(OCCASIONS);
-const SUGGESTIONS = ["Spicy food", "Something with rice", "Cheap Italian for 4, one's vegan", "Dessert to share"];
+const SUGGESTIONS = ["Spicy food", "Something with rice", "Something spicy for 4, one's vegan", "Dessert to share"];
 
 // ---- The table: the diner's profile plus anyone the query adds ("one's vegan").
 // The strictest restriction in the group applies (model contract: dietary flags).
@@ -115,7 +116,7 @@ function groupUser(extra) {
 }
 function allowedFor(items, user) {
   const ex = Models.excludedAllergens(user);
-  return new Set(items.filter((i) => !i.allergens.some((a) => ex.has(a))).map((i) => i.item_id));
+  return new Set(items.filter((i) => !i.allergens.some((a) => ex.has(a)) && !Models.failsDiet(i, user)).map((i) => i.item_id));
 }
 // Food only: a place whose only safe items are drinks isn't a place to eat.
 function safeDishCount(r, user = groupUser()) {
@@ -214,7 +215,7 @@ function dishResults(crit = committedQuery()) {
     const items = BOOKME_SNAPSHOT.menus[r.restaurant_id] || [];
     for (const i of items) {
       if (!Query.dishMatches(i, crit.parsed)) continue;
-      if (i.allergens.some((a) => ex.has(a))) { hidden++; continue; }
+      if (i.allergens.some((a) => ex.has(a)) || Models.failsDiet(i, user)) { hidden++; continue; }
       if (crit.budgetSet && price(i) > (BUDGET_CAP[crit.budget] ?? Infinity)) continue;
       const fit = Models.dietFit(i, user, allowedFor(items, user));
       const score = withFeedback(i.item_id, Models.dishScore(i, user, r, fit), fit);
@@ -365,7 +366,7 @@ SCREENS.home = {
               ${d.fit.level === "caution" ? `<span class="pill warn" style="margin-top:4px">${esc(d.fit.reason)}</span>` : ""}</span>
               <span class="pill accent num">${d.match}%</span>
             </button>`).join("")}
-          ${hidden ? `<p class="small" style="margin-top:10px">${hidden} more dish${hidden === 1 ? "" : "es"} score 0 for your table's ${esc(tags.filter((t) => t.endsWith("-free")).join(", ") || "dietary")} profile.</p>` : ""}
+          ${hidden ? `<p class="small" style="margin-top:10px">${hidden} more dish${hidden === 1 ? "" : "es"} score 0 for your table's ${esc(tags.join(", ") || "dietary")} profile.</p>` : ""}
           <h3 class="h2">Restaurants that have it</h3>` : ""}
         ${places.map((r) => `
           <button class="card r-card" data-rid="${r.restaurant_id}">
@@ -897,7 +898,7 @@ function lineChart(rows) {
   const y = (v) => P.t + (1 - v / max) * (H - P.t - P.b);
   const path = (k) => rows.map((r, i) => (r[k] == null ? "" : `${i && rows[i - 1][k] != null ? "L" : "M"}${x(i).toFixed(1)},${y(r[k]).toFixed(1)}`)).join(" ");
   const ticks = [0, max / 2, max];
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Forecast versus actual covers">
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Forecast versus actual guests">
     ${ticks.map((t) => `<line x1="${P.l}" x2="${W - P.r}" y1="${y(t)}" y2="${y(t)}" stroke="#EDE6DE"/><text x="${P.l - 6}" y="${y(t) + 4}" font-size="10" text-anchor="end" fill="#9C918A">${t}</text>`).join("")}
     ${rows.map((r, i) => (i % 2 === 0 ? `<text x="${x(i)}" y="${H - 6}" font-size="9.5" text-anchor="middle" fill="#9C918A">${fmtDate(r.shift_date, { weekday: "short" })}</text>` : "")).join("")}
     <path d="${path("naive")}" fill="none" stroke="#6B605A" stroke-width="1.5" stroke-dasharray="4 4"/>
@@ -932,25 +933,29 @@ const OWNER_TABS = {
     const todayRows = ["breakfast", "lunch", "dinner", "late_night"].map((b) => rows.find((r) => r.shift_date === today && r.shift_block === b)).filter(Boolean);
     const dinner = todayRows.find((r) => r.shift_block === "dinner") || todayRows[0];
     const cps = Models.coversPerStaff(rows) || 12;
-    const flat = Math.round(rows.filter((r) => r.shift_block === dinner.shift_block).reduce((s, r) => s + r.actual_staff_count, 0) / Math.max(1, rows.filter((r) => r.shift_block === dinner.shift_block).length));
-    const diff = flat - dinner.recommended_staff_count;
     const yesterday = rows.find((r) => r.shift_date === dates[dates.length - 2] && r.shift_block === dinner.shift_block);
     const trend = yesterday ? Math.round(((dinner.predicted_covers - yesterday.actual_covers) / Math.max(1, yesterday.actual_covers)) * 100) : 0;
     const reserved = Math.round(dinner.predicted_covers * 0.72);
+    const scheduled = dinner.actual_staff_count;
+    const gap = dinner.recommended_staff_count - scheduled;
+    const err = Math.max(1, Math.round(Models.accuracy(rows).model));
     const tag = (r) => r.actual_staff_count > r.recommended_staff_count ? `<span class="pill warn">+${r.actual_staff_count - r.recommended_staff_count} over</span>`
       : r.actual_staff_count < r.recommended_staff_count ? `<span class="pill bad">${r.actual_staff_count - r.recommended_staff_count} short</span>` : `<span class="pill good">on plan</span>`;
     return `
       <div class="ops-head"><div><span class="label">Service plan</span><h2 class="display">Tonight</h2></div><span class="date-pill">${fmtDate(today)}</span></div>
       <div class="hero-card">
         <span class="k">${fmtDate(today, { weekday: "long" })} ${BLOCK_LABEL[dinner.shift_block].toLowerCase()}</span>
-        <div class="big">${dinner.predicted_covers} covers expected <span class="arrow">→</span><br>staff ${dinner.recommended_staff_count}</div>
-        <div class="rule">${dinner.predicted_covers} covers ÷ ~${cps.toFixed(0)} covers per staff member ≈ ${dinner.recommended_staff_count} on the floor · confidence ${Math.round(dinner.confidence_score * 100)}% · prep-time model, summed across the shift
-          <b>${diff > 0 ? `Your usual ${BLOCK_LABEL[dinner.shift_block].toLowerCase()} schedule runs ${flat} — saving ~${diff} shift${diff === 1 ? "" : "s"}.` : diff < 0 ? `Your usual schedule runs ${flat} — add ${-diff} to avoid a short floor.` : `Matches your usual ${BLOCK_LABEL[dinner.shift_block].toLowerCase()} schedule.`}</b></div>
+        <div class="big">Schedule ${dinner.recommended_staff_count} staff tonight</div>
+        <div class="act ${gap > 0 ? "up" : gap < 0 ? "down" : "ok"}">You have ${scheduled} scheduled → <b>${gap > 0 ? `add ${gap}` : gap < 0 ? `${-gap} can go home early` : "you're set"}</b></div>
+        <p class="why-line">${dinner.predicted_covers} guests expected: ${reserved} booked, about ${dinner.predicted_covers - reserved} walk-ins</p>
+        <details class="rule"><summary>How we got this</summary>
+          About ${cps.toFixed(0)} guests per staff member, so ${dinner.predicted_covers} guests ≈ ${dinner.recommended_staff_count} staff. Likely range ${Math.max(0, dinner.predicted_covers - err)}–${dinner.predicted_covers + err} guests. From the prep-time model, summed across the shift.
+        </details>
       </div>
       <div class="kpis">
         <div class="kpi"><span>Reserved</span><b class="num">${reserved}</b></div>
         <div class="kpi"><span>Walk-ins</span><b class="num">${dinner.predicted_covers - reserved}</b></div>
-        <div class="kpi"><span>On floor</span><b class="num">${dinner.recommended_staff_count}</b></div>
+        <div class="kpi"><span>Scheduled</span><b class="num">${scheduled}</b></div>
       </div>
       <div class="o-card">
         <span class="label">Demand signal</span>
@@ -960,7 +965,7 @@ const OWNER_TABS = {
       </div>
       <div class="o-card">
         <span class="label">All shifts today</span>
-        ${todayRows.map((r) => `<div class="shift-row"><span class="d">${BLOCK_LABEL[r.shift_block]}<span>${r.predicted_covers} covers · ${r.recommended_staff_count} recommended</span></span><span class="num">${r.actual_staff_count} scheduled</span>${tag(r)}</div>`).join("")}
+        ${todayRows.map((r) => `<div class="shift-row"><span class="d">${BLOCK_LABEL[r.shift_block]}<span>${r.predicted_covers} guests · ${r.recommended_staff_count} recommended</span></span><span class="num">${r.actual_staff_count} scheduled</span>${tag(r)}</div>`).join("")}
       </div>`;
   },
   forecast({ rows }) {
@@ -981,13 +986,13 @@ const OWNER_TABS = {
         ${lineChart(series)}
         <div class="chart-legend"><span><i style="color:#2A211C"></i>Actual</span><span><i style="color:#C45C33"></i>Our forecast</span><span><i style="color:#6B605A;border-top-style:dashed"></i>Same as last week</span></div>
       </div>
-      <div class="err-card"><span class="label">Forecast error</span><b class="num">±${acc.model.toFixed(0)} covers</b> with our forecast <span class="vs">vs</span> <b class="num">±${acc.naive.toFixed(0)}</b> guessing from last week</div>
+      <div class="err-card"><span class="label">Forecast error</span><b class="num">±${acc.model.toFixed(0)} guests</b> with our forecast <span class="vs">vs</span> <b class="num">±${acc.naive.toFixed(0)}</b> guessing from last week</div>
       <div class="kpis">
         <div class="kpi"><span>Overstaffed</span><b class="num">${gaps.over}</b></div>
         <div class="kpi"><span>Short</span><b class="num">${gaps.under}</b></div>
         <div class="kpi"><span>Shifts</span><b class="num">${gaps.total}</b></div>
       </div>
-      <p class="illustrative">Prep-time model v0.1, shift totals on synthetic data, ${acc.n} shifts scored. Error is the average gap between forecast and actual covers per shift.</p>
+      <p class="illustrative">Prep-time model v0.1, shift totals on synthetic data, ${acc.n} shifts scored. Error is the average gap between forecast and actual guests per shift.</p>
       <button class="linkbtn" data-otab="reorder">Review reorder plan <span>${icons.chev}</span></button>`;
   },
   reorder({ rows, dates }, r) {
@@ -1009,7 +1014,7 @@ const OWNER_TABS = {
     const low = plan.filter((p) => p.low).length;
     return `
       <div class="ops-head"><div><span class="label">Next delivery</span><h2 class="display">Reorder</h2></div></div>
-      <p class="sub">Portions to prep for the next 7 shifts' forecast (${covers} covers), from each dish's share of past orders.</p>
+      <p class="sub">Portions to prep for the next 7 shifts' forecast (${covers} guests), from each dish's share of past orders.</p>
       <div class="table">
         <div class="th"><span>Dish</span><span>Portions</span></div>
         ${plan.map((p) => `<div class="tr"><span class="n">${esc(p.name)}${p.low ? `<br><span class="pill bad" style="margin-top:4px">Below threshold</span>` : ""}</span><span class="q num">${p.qty}</span></div>`).join("")}
@@ -1075,7 +1080,7 @@ function resetDiner() {
 function pickFriends() {
   const others = state.users.filter((u) => u.user_id !== state.user.user_id);
   const plain = others.filter((u) => !u.dietary_tags);
-  state.friends = [...plain, ...others.filter((u) => u.dietary_tags)].slice(0, 2);
+  state.friends = [...plain, ...others.filter((u) => u.dietary_tags)].slice(0, 7);
 }
 function initDemoPanel() {
   demo.toggle.addEventListener("click", () => { const open = demo.panel.hidden; demo.panel.hidden = !open; demo.toggle.setAttribute("aria-expanded", String(open)); });

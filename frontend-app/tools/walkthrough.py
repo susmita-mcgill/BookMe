@@ -31,7 +31,7 @@ async def main():
         print("source:", await page.inner_text("#demoSource"))
         await shot("00-search")
         # A sentence: constraints are read out of it, the rest is the craving
-        await page.fill("[data-q]", "Cheap Italian for 4, one's vegan")
+        await page.fill("[data-q]", "Something spicy for 4, one's vegan")
         print("parsed:", (await page.inner_text("[data-understood]")).replace("\n", " | "), "->", await page.inner_text("[data-find]"))
         await page.fill("[data-q]", "")
         await page.click("[data-suggest] >> nth=0")  # "Spicy noodles"
